@@ -1,0 +1,14 @@
+-- Dato sucio encontrado corriendo el ETL por primera vez: routes.txt tiene
+-- una fila (route_id=TR13, "Trolebús Línea 13") con agency_id=SEMOVI, pero
+-- SEMOVI NO existe en agency.txt (los 10 agency_id válidos son INTERURBANO,
+-- PUMABUS, CC, METRO, MB, TL, SUB, TROLE, RTP, CBB). Es casi seguro que
+-- debería apuntar a TROLE (Trolebús), pero eso es una suposición nuestra,
+-- no un dato de la fuente — por regla dura del agente NO se corrige en el
+-- ETL. Se documenta en docs/handoff/01-datos.md y se relaja el FK para que
+-- el ETL pueda cargar la fila tal cual viene en vez de tronar o inventar un
+-- valor. routes.agency_id sigue siendo una columna normal; la corrección
+-- (si se decide) debe pasar por revisar la fuente o por un mecanismo de
+-- override explícito, no por este ETL.
+ALTER TABLE routes DROP CONSTRAINT IF EXISTS routes_agency_id_fkey;
+-- El índice routes_agency_id_idx (creado en 0003) sigue sirviendo para
+-- lookups por agencia aunque ya no haya FK.

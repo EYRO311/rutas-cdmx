@@ -1,0 +1,2575 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "rutas-cdmx API",
+    "description": "Ruteo multimodal para CDMX (Metro, Metrobús, Ecobici, caminata, auto). Auth por API key (header X-API-Key).",
+    "version": "0.1.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "name": "X-API-Key",
+        "in": "header"
+      }
+    },
+    "schemas": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ok",
+                            "degraded"
+                          ]
+                        },
+                        "db": {
+                          "type": "string",
+                          "enum": [
+                            "ok",
+                            "error"
+                          ]
+                        },
+                        "uptime_s": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "db",
+                        "uptime_s",
+                        "version"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/routes": {
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "origin": {
+                    "type": "object",
+                    "properties": {
+                      "lat": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "lon": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lon"
+                    ],
+                    "description": "Coordenada WGS84."
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "lat": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "lon": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lon"
+                    ],
+                    "description": "Coordenada WGS84."
+                  },
+                  "departure_at": {
+                    "description": "Hora de salida deseada, ISO 8601 con offset. Excluyente con arrival_at.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "arrival_at": {
+                    "description": "Hora de llegada deseada, ISO 8601 con offset. Excluyente con departure_at.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "allowed_modes": {
+                    "description": "Subconjunto de modos permitidos. Si se omite, el motor considera todos.",
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "metro",
+                        "metrobus",
+                        "rtp",
+                        "cc",
+                        "trole",
+                        "cablebus",
+                        "pumabus",
+                        "tren_ligero",
+                        "suburbano",
+                        "interurbano",
+                        "ecobici",
+                        "walk",
+                        "auto",
+                        "transfer",
+                        "transit"
+                      ],
+                      "description": "Modo de transporte de un tramo."
+                    }
+                  },
+                  "max_results": {
+                    "default": 3,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "user_id": {
+                    "description": "Si se manda, el motor puede personalizar con user_preferences/user_modes de ese usuario.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "origin",
+                  "destination"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "routes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "duration_s": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "cost_mxn": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "description": "Qué tanto confiar en este dato: 1 = medido/tiempo real, valores bajos = estimado sobre GTFS estático viejo o heurística de distancia. Ver .claude/agents/api-http.md."
+                                  },
+                                  "transfers": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "distance_m": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "duration_s",
+                                  "cost_mxn",
+                                  "confidence",
+                                  "transfers"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "legs": {
+                                "minItems": 1,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "enum": [
+                                        "metro",
+                                        "metrobus",
+                                        "rtp",
+                                        "cc",
+                                        "trole",
+                                        "cablebus",
+                                        "pumabus",
+                                        "tren_ligero",
+                                        "suburbano",
+                                        "interurbano",
+                                        "ecobici",
+                                        "walk",
+                                        "auto",
+                                        "transfer",
+                                        "transit"
+                                      ],
+                                      "description": "Modo de transporte de un tramo."
+                                    },
+                                    "duration_s": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "cost_mxn": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "confidence": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1,
+                                      "description": "Qué tanto confiar en este dato: 1 = medido/tiempo real, valores bajos = estimado sobre GTFS estático viejo o heurística de distancia. Ver .claude/agents/api-http.md."
+                                    },
+                                    "from": {
+                                      "type": "object",
+                                      "properties": {
+                                        "stop_id": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "name": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "lat": {
+                                          "type": "number"
+                                        },
+                                        "lon": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "stop_id",
+                                        "name",
+                                        "lat",
+                                        "lon"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "to": {
+                                      "type": "object",
+                                      "properties": {
+                                        "stop_id": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "name": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "lat": {
+                                          "type": "number"
+                                        },
+                                        "lon": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "stop_id",
+                                        "name",
+                                        "lat",
+                                        "lon"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "route_id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "trip_id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "departure_at": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "date-time",
+                                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "arrival_at": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "date-time",
+                                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "polyline": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "mode",
+                                    "duration_s",
+                                    "cost_mxn",
+                                    "confidence",
+                                    "from",
+                                    "to"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "summary",
+                              "legs"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "routes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stops/near": {
+      "get": {
+        "tags": [
+          "stops"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "in": "query",
+            "name": "lat",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "in": "query",
+            "name": "lon",
+            "required": true
+          },
+          {
+            "schema": {
+              "default": 400,
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 2000
+            },
+            "in": "query",
+            "name": "radius_m",
+            "required": false,
+            "description": "Radio de búsqueda en metros, línea recta. Tope 2000m."
+          },
+          {
+            "schema": {
+              "default": 10,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 50
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "stops": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "stop_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "lat": {
+                                "type": "number"
+                              },
+                              "lon": {
+                                "type": "number"
+                              },
+                              "distance_m": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Distancia geodésica en línea recta (ST_Distance sobre geography)."
+                              },
+                              "wheelchair_boarding": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "stop_id",
+                              "name",
+                              "lat",
+                              "lon",
+                              "distance_m",
+                              "wheelchair_boarding"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "stops"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips": {
+      "post": {
+        "tags": [
+          "trips"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "origin": {
+                    "type": "object",
+                    "properties": {
+                      "lat": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "lon": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lon"
+                    ],
+                    "description": "Coordenada WGS84."
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "lat": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "lon": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lon"
+                    ],
+                    "description": "Coordenada WGS84."
+                  },
+                  "planned_departure_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "actual_departure_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "actual_arrival_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "planned_duration_secs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "actual_duration_secs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "modes_used": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "metro",
+                        "metrobus",
+                        "rtp",
+                        "cc",
+                        "trole",
+                        "cablebus",
+                        "pumabus",
+                        "tren_ligero",
+                        "suburbano",
+                        "interurbano",
+                        "ecobici",
+                        "walk",
+                        "auto",
+                        "transfer",
+                        "transit"
+                      ],
+                      "description": "Modo de transporte de un tramo."
+                    }
+                  },
+                  "route_taken": {
+                    "description": "Snapshot del itinerario devuelto por POST /v1/routes, tal cual (JSONB)."
+                  },
+                  "user_rating": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "origin",
+                  "destination"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "bigserial de trip_history, como string (evita perder precisión en JSON)."
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "created_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/modes": {
+      "get": {
+        "tags": [
+          "modes"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "in": "query",
+            "name": "user_id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": {
+                          "type": "string"
+                        },
+                        "modes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": [
+                                  "metro",
+                                  "metrobus",
+                                  "rtp",
+                                  "cc",
+                                  "trole",
+                                  "cablebus",
+                                  "pumabus",
+                                  "tren_ligero",
+                                  "suburbano",
+                                  "interurbano",
+                                  "ecobici",
+                                  "walk",
+                                  "auto",
+                                  "transfer",
+                                  "transit"
+                                ],
+                                "description": "Modo de transporte de un tramo."
+                              },
+                              "is_enabled": {
+                                "default": true,
+                                "type": "boolean"
+                              },
+                              "tiene_auto": {
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "rendimiento_km_l": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "costo_combustible": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tolerancia_estacionamiento_min": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "terminacion_placa": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "holograma": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "evita_casetas": {
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "mode",
+                              "is_enabled"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "user_id",
+                        "modes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "modes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "modes": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "metro",
+                            "metrobus",
+                            "rtp",
+                            "cc",
+                            "trole",
+                            "cablebus",
+                            "pumabus",
+                            "tren_ligero",
+                            "suburbano",
+                            "interurbano",
+                            "ecobici",
+                            "walk",
+                            "auto",
+                            "transfer",
+                            "transit"
+                          ],
+                          "description": "Modo de transporte de un tramo."
+                        },
+                        "is_enabled": {
+                          "default": true,
+                          "type": "boolean"
+                        },
+                        "tiene_auto": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rendimiento_km_l": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "costo_combustible": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "tolerancia_estacionamiento_min": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "terminacion_placa": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "holograma": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "evita_casetas": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "modes"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta exitosa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": {
+                          "type": "string"
+                        },
+                        "modes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": [
+                                  "metro",
+                                  "metrobus",
+                                  "rtp",
+                                  "cc",
+                                  "trole",
+                                  "cablebus",
+                                  "pumabus",
+                                  "tren_ligero",
+                                  "suburbano",
+                                  "interurbano",
+                                  "ecobici",
+                                  "walk",
+                                  "auto",
+                                  "transfer",
+                                  "transit"
+                                ],
+                                "description": "Modo de transporte de un tramo."
+                              },
+                              "is_enabled": {
+                                "default": true,
+                                "type": "boolean"
+                              },
+                              "tiene_auto": {
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "rendimiento_km_l": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "costo_combustible": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tolerancia_estacionamiento_min": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "terminacion_placa": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "holograma": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "evita_casetas": {
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "mode",
+                              "is_enabled"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "user_id",
+                        "modes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta exitosa."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Respuesta de error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "null"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "request_id": {
+                          "type": "string",
+                          "description": "Id de correlación de este request, útil para buscar en logs."
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "Momento en que el servidor construyó esta respuesta."
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "generated_at"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Metadatos de la respuesta. Puede traer campos adicionales según el endpoint."
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR",
+                            "UNAUTHORIZED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "ENGINE_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Error tipado. Solo presente cuando `data` es null."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta",
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Respuesta de error."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local"
+    },
+    {
+      "url": "https://rutas-cdmx.vercel.app",
+      "description": "Producción (Vercel, placeholder hasta el deploy real)"
+    }
+  ],
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "routes",
+      "description": "Cálculo de rutas multimodales."
+    },
+    {
+      "name": "stops",
+      "description": "Búsqueda de paradas."
+    },
+    {
+      "name": "trips",
+      "description": "Registro de viajes reales (calibración)."
+    },
+    {
+      "name": "modes",
+      "description": "Configuración de modos del usuario."
+    },
+    {
+      "name": "health",
+      "description": "Monitoreo."
+    }
+  ]
+}

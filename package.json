@@ -3,14 +3,32 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed:api-key": "tsx scripts/seed-api-key.ts",
+    "dev:api": "tsx watch src/api/server.ts",
+    "mcp:stdio": "tsx src/mcp/local-stdio.ts",
+    "openapi:generate": "tsx scripts/generate-openapi.ts",
+    "openapi:validate": "tsx scripts/validate-openapi.ts",
+    "etl": "tsx scripts/etl/index.ts",
+    "etl:osm": "tsx scripts/osm/fetch-cdmx-extract.ts",
+    "osm:load": "tsx scripts/osm/load-to-postgres.ts",
+    "graph:walk-edges": "tsx scripts/graph/build-walk-edges.ts",
+    "graph:bike-edges": "tsx scripts/graph/build-bike-edges.ts",
+    "etl:ecobici:snapshot": "tsx scripts/ecobici/snapshot.ts",
+    "etl:ecobici:trips": "tsx scripts/ecobici/load-historical-trips.ts",
+    "etl:ecobici:speed-stats": "tsx scripts/ecobici/compute-speed-stats.ts",
+    "gtfs-rt:metrobus": "tsx scripts/gtfs-rt/fetch-and-store.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@seriousme/openapi-schema-validator": "^2.9.1",
     "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
     "dotenv": "^17.4.2",
     "prisma": "^7.9.1",
     "tsx": "^4.23.12",
@@ -18,8 +36,14 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "fastify": "^5.12.0",
+    "fastify-type-provider-zod": "^7.0.0",
+    "pg": "^8.23.0",
     "protobufjs": "^8.7.2",
     "zod": "^4.4.3"
   }

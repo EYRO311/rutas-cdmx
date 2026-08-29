@@ -5,3 +5,8 @@ node_modules
 /generated/prisma
 *.pbf
 dist/
+
+# Datos crudos descargados por los scripts de ETL (GTFS estático, extracto
+# OSM). Se reconstruyen corriendo `npm run etl` / `npm run etl:osm` — no
+# tiene caso versionarlos (decenas de MB, cambian con cada descarga).
+data/raw/

@@ -36,5 +36,15 @@ Time-expanded: nodo = (parada, tiempo), arista = tramo de viaje | transbordo | c
 ## Reglas duras
 - **Prisma no carga `.env` solo.** El proyecto depende de `import "dotenv/config"` al inicio de `prisma.config.ts`. No lo quites ni lo "limpies" — sin eso Prisma no ve `DATABASE_URL` y las migraciones fallan en silencio o contra la URL equivocada.
 
+## Entregable agregado (2026-08-22): aristas reales de bici (Ecobici)
+Hasta ahora el "tramo ciclista" de la tabla de arriba solo modelaba caminar hacia/desde una estación (via `walk_edges`) — nunca el trayecto en bici entre dos estaciones. Con `datos-gtfs` habiendo calculado una velocidad real medida (tabla `ecobici_speed_stats`, ver su handoff actualizado), ahora sí se puede modelar de verdad.
+
+1. Tabla nueva (ej. `bike_edges`) conectando pares de estaciones Ecobici dentro de un radio que tenga sentido para un viaje en bici (no copies el radio de 400m de `walk_edges`, eso es para caminar — decide tú un radio razonable para bici y documenta por qué, con evidencia si puedes: cuántos pares salen a distintos radios, igual que hiciste con el hallazgo de las 170 paradas candidatas de acceso en su momento). Tiempo = distancia ÷ velocidad real de `ecobici_speed_stats` (nunca la constante de `walk_edges`).
+2. Una función SQL nueva (o una extensión razonada de `graph_stop_neighbors`, tu decisión, documenta cuál y por qué) que permita **expandir el grafo desde una estación Ecobici**, no solo hacia ella. Este es el gap exacto que dejó documentado `algoritmo-ruteo` en `docs/handoff/03-algoritmo.md` sección 8 punto 1 — léelo antes de diseñar, para no repetir la limitación que ya se encontró.
+3. La disponibilidad de bicis/docks sigue sin precalcularse aquí — eso ya se decidió en tu handoff original y sigue igual: se consulta `ecobici_snapshots` en tiempo de consulta, quien la use (`algoritmo-ruteo`) decide cuándo.
+4. Actualiza `docs/handoff/02-grafo.md` con una sección nueva (no reescribas lo ya aprobado) documentando esto: conteos reales, el radio elegido y por qué, y la forma exacta de la función/tabla nueva para que `algoritmo-ruteo` la consuma.
+
 ## Criterio de terminado
 `prisma migrate` corre limpio desde cero, y una query de vecinos de una parada responde en menos de 50ms.
+
+**Agregado para el entregable de bici:** la nueva función/tabla de expansión desde una estación Ecobici también responde en menos de 50ms, medido igual de real que el resto (no estimado).

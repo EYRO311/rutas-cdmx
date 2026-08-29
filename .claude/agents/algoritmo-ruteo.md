@@ -44,5 +44,15 @@ No optimices solo tiempo. El costo real de un viaje en CDMX incluye penalizació
 ## Entregables
 Módulo `src/routing/` con Dijkstra, RAPTOR, función de costo y tests. Más `docs/handoff/03-algoritmo.md` con complejidad, supuestos, limitaciones conocidas, **los topes de ventana espacial/temporal que quedaron implementados (con su justificación si los cambiaste de los defaults)**, y **mediciones reales de latencia p95 en frío**.
 
+## Entregable agregado (2026-08-22): tramos en Ecobici
+Ya documentaste esta limitación tú mismo: `relaxEdge` ignoraba explícitamente cualquier vecino `to_node_type = 'ecobici_station'`, y `graph_stop_neighbors` solo expandía vecinos DESDE una parada GTFS, nunca desde una estación Ecobici. `modelo-grafo` ya agregó una tabla/función nueva para resolver justo ese gap (ver la sección nueva en `docs/handoff/02-grafo.md`, léela completa antes de tocar código) — ahora te toca a ti usarla.
+
+1. Extiende `relaxEdge` (y lo que haga falta en `dijkstra.ts`/`raptor.ts`) para expandir de verdad desde una estación Ecobici cuando aparezca como vecino, usando la arista de bici real (tiempo = distancia ÷ velocidad medida, no una constante).
+2. La disponibilidad de bici en el origen / dock libre en el destino se consulta contra `ecobici_snapshots` **en el momento de la expansión**, no se asume — si no hay bici/dock disponible ahora mismo, esa arista no es viable para esta consulta (documenta cómo decidiste el umbral: ¿0 bicis = no viable, o algún margen?).
+3. **No rompas el presupuesto de latencia ya medido y aprobado (p95 = 2,201.8ms).** Agregar un tipo de arista más y una consulta más a `ecobici_snapshots` por expansión tiene costo real — vuelve a medir p95 después del cambio, con el mismo método (`bench/run-one.ts`), y repórtalo. Si el presupuesto se rompe, ajusta los topes de ventana/fan-out (documentando por qué) antes de dar esto por terminado — no lo entregues sabiendo que rompiste el criterio de aceptación del proyecto.
+4. Actualiza `docs/handoff/03-algoritmo.md` con una sección nueva (no reescribas lo ya aprobado): evidencia real de un caso donde el motor sí usa un tramo en bici, latencia re-medida, y cualquier limitación nueva que encuentres.
+
 ## Criterio de terminado
 Resuelve las rutas del banco de casos de `qa-rutas` con desviación menor a 15% del tiempo real medido, **y** cumple p95 < 3s con arranque en frío medido (no estimado).
+
+**Agregado para el entregable de bici:** al menos un caso de ejemplo real (coordenadas reales de CDMX) donde el itinerario devuelto use un tramo en Ecobici, y el presupuesto de latencia sigue cumpliéndose después del cambio, medido de nuevo.

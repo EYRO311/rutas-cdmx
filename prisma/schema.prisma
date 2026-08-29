@@ -1,13 +1,396 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model migrations {
+  name       String   @id
+  applied_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("_migrations")
+}
+
+model raw {
+  id         BigInt   @id @default(dbgenerated("nextval('_raw_id_seq'::regclass)"))
+  source     String
+  file_name  String
+  row_number Int?
+  row_data   Json
+  loaded_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([source, file_name], map: "_raw_source_file_idx")
+  @@map("_raw")
+}
+
+model agency {
+  agency_id       String  @id
+  agency_name     String
+  agency_url      String?
+  agency_timezone String?
+  agency_lang     String?
+}
+
+model calendar {
+  service_id String   @id
+  monday     Boolean
+  tuesday    Boolean
+  wednesday  Boolean
+  thursday   Boolean
+  friday     Boolean
+  saturday   Boolean
+  sunday     Boolean
+  start_date DateTime @db.Date
+  end_date   DateTime @db.Date
+  trips      trips[]
+}
+
+model calendar_dates {
+  service_id     String
+  date           DateTime @db.Date
+  exception_type Int      @db.SmallInt
+
+  @@id([service_id, date])
+}
+
+model ecobici_snapshots {
+  id                  BigInt           @id @default(autoincrement())
+  station_id          String
+  num_bikes_available Int?
+  num_docks_available Int?
+  is_renting          Boolean?
+  is_returning        Boolean?
+  last_reported       DateTime?        @db.Timestamptz(6)
+  captured_at         DateTime         @default(now()) @db.Timestamptz(6)
+  ecobici_stations    ecobici_stations @relation(fields: [station_id], references: [station_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([station_id, captured_at], map: "ecobici_snapshots_station_captured_idx")
+}
+
+model ecobici_stations {
+  station_id        String                   @id
+  name              String?
+  lat               Float?
+  lon               Float?
+  capacity          Int?
+  geom              Unsupported("geometry")?
+  updated_at        DateTime                 @default(now()) @db.Timestamptz(6)
+  ecobici_snapshots ecobici_snapshots[]
+
+  @@index([geom], map: "ecobici_stations_geom_gix", type: Gist)
+}
+
+model frequencies {
+  trip_id         String
+  start_time      String
+  start_time_secs Int
+  end_time        String
+  end_time_secs   Int
+  headway_secs    Int
+  exact_times     Int?   @db.SmallInt
+  trips           trips  @relation(fields: [trip_id], references: [trip_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([trip_id, start_time])
+  @@index([trip_id])
+}
+
+model metrobus_trip_updates {
+  id                    BigInt    @id @default(autoincrement())
+  trip_id               String?
+  route_id              String?
+  stop_id               String?
+  stop_sequence         Int?
+  arrival_delay_secs    Int?
+  arrival_time          DateTime? @db.Timestamptz(6)
+  departure_delay_secs  Int?
+  departure_time        DateTime? @db.Timestamptz(6)
+  schedule_relationship String?
+  update_timestamp      DateTime? @db.Timestamptz(6)
+  captured_at           DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([trip_id], map: "metrobus_trip_updates_trip_idx")
+}
+
+model metrobus_vehicle_positions {
+  id                    BigInt                   @id @default(autoincrement())
+  vehicle_id            String?
+  trip_id               String?
+  route_id              String?
+  lat                   Float?
+  lon                   Float?
+  bearing               Float?                   @db.Real
+  speed                 Float?                   @db.Real
+  current_stop_sequence Int?
+  vehicle_timestamp     DateTime?                @db.Timestamptz(6)
+  geom                  Unsupported("geometry")?
+  captured_at           DateTime                 @default(now()) @db.Timestamptz(6)
+
+  @@index([geom], map: "metrobus_vehicle_positions_geom_gix", type: Gist)
+  @@index([trip_id], map: "metrobus_vehicle_positions_trip_idx")
+}
+
+model osm_nodes {
+  osm_id BigInt                  @id
+  lat    Float
+  lon    Float
+  geom   Unsupported("geometry")
+
+  @@index([geom], map: "osm_nodes_geom_gix", type: Gist)
+}
+
+model osm_ways {
+  osm_id        BigInt                   @id
+  highway       String?
+  name          String?
+  tags          Json
+  node_ids      BigInt[]
+  length_meters Float?
+  geom          Unsupported("geometry")?
+
+  @@index([geom], map: "osm_ways_geom_gix", type: Gist)
+  @@index([highway])
+}
+
+model routes {
+  route_id         String  @id
+  agency_id        String?
+  route_short_name String?
+  route_long_name  String?
+  route_type       Int
+  route_color      String?
+  route_text_color String?
+  trips            trips[]
+
+  @@index([agency_id])
+}
+
+model saved_places {
+  id         BigInt                  @id @default(autoincrement())
+  user_id    String
+  label      String
+  lat        Float
+  lon        Float
+  geom       Unsupported("geometry")
+  created_at DateTime                @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, label])
+  @@index([geom], map: "saved_places_geom_gix", type: Gist)
+  @@index([user_id])
+}
+
+model shapes {
+  shape_id            String
+  shape_pt_sequence   Int
+  shape_pt_lat        Float
+  shape_pt_lon        Float
+  shape_dist_traveled Float?
+  geom                Unsupported("geometry")
+
+  @@id([shape_id, shape_pt_sequence])
+  @@index([geom], map: "shapes_geom_gix", type: Gist)
+  @@index([shape_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+}
+
+model stop_overrides {
+  id                           BigInt   @id @default(autoincrement())
+  stop_id                      String   @unique(map: "stop_overrides_one_active_per_stop", where: raw("is_active"))
+  override_lat                 Float?
+  override_lon                 Float?
+  override_name                String?
+  override_wheelchair_boarding Int?     @db.SmallInt
+  is_active                    Boolean  @default(true)
+  reason                       String
+  created_at                   DateTime @default(now()) @db.Timestamptz(6)
+  created_by                   String?
+  stops                        stops    @relation(fields: [stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([stop_id])
+}
+
+model stop_times {
+  trip_id             String
+  stop_sequence       Int
+  stop_id             String
+  arrival_time        String?
+  arrival_time_secs   Int?
+  departure_time      String?
+  departure_time_secs Int?
+  timepoint           Int?    @db.SmallInt
+  stops               stops   @relation(fields: [stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+  trips               trips   @relation(fields: [trip_id], references: [trip_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([trip_id, stop_sequence])
+  @@index([stop_id])
+}
+
+model stops {
+  stop_id                                                   String                  @id
+  stop_name                                                 String
+  stop_lat                                                  Float
+  stop_lon                                                  Float
+  zone_id                                                   String?
+  wheelchair_boarding                                       Int?                    @db.SmallInt
+  geom                                                      Unsupported("geometry")
+  stop_overrides                                            stop_overrides?
+  stop_times                                                stop_times[]
+  transfer_overrides_transfer_overrides_from_stop_idTostops transfer_overrides[]    @relation("transfer_overrides_from_stop_idTostops")
+  transfer_overrides_transfer_overrides_to_stop_idTostops   transfer_overrides[]    @relation("transfer_overrides_to_stop_idTostops")
+  transfers_transfers_from_stop_idTostops                   transfers[]             @relation("transfers_from_stop_idTostops")
+  transfers_transfers_to_stop_idTostops                     transfers[]             @relation("transfers_to_stop_idTostops")
+
+  @@index([geom], map: "stops_geom_gix", type: Gist)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model transfer_overrides {
+  id                                           BigInt   @id @default(autoincrement())
+  from_stop_id                                 String
+  to_stop_id                                   String
+  transfer_type                                Int      @default(2) @db.SmallInt
+  min_transfer_time_secs                       Int?
+  is_walk_required                             Boolean  @default(true)
+  reason                                       String?
+  is_active                                    Boolean  @default(true)
+  created_at                                   DateTime @default(now()) @db.Timestamptz(6)
+  created_by                                   String?
+  stops_transfer_overrides_from_stop_idTostops stops    @relation("transfer_overrides_from_stop_idTostops", fields: [from_stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+  stops_transfer_overrides_to_stop_idTostops   stops    @relation("transfer_overrides_to_stop_idTostops", fields: [to_stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([from_stop_id, to_stop_id], map: "transfer_overrides_one_active_per_pair", where: raw("is_active"))
+  @@index([from_stop_id], map: "transfer_overrides_from_stop_idx", where: raw("is_active"))
+  @@index([to_stop_id], map: "transfer_overrides_to_stop_idx", where: raw("is_active"))
+}
+
+model transfers {
+  from_stop_id                        String
+  to_stop_id                          String
+  transfer_type                       Int?   @db.SmallInt
+  min_transfer_time                   Int?
+  stops_transfers_from_stop_idTostops stops  @relation("transfers_from_stop_idTostops", fields: [from_stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+  stops_transfers_to_stop_idTostops   stops  @relation("transfers_to_stop_idTostops", fields: [to_stop_id], references: [stop_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([from_stop_id, to_stop_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model trip_history {
+  id                    BigInt                  @id @default(autoincrement())
+  user_id               String
+  origin_lat            Float
+  origin_lon            Float
+  origin_geom           Unsupported("geometry")
+  destination_lat       Float
+  destination_lon       Float
+  destination_geom      Unsupported("geometry")
+  planned_departure_at  DateTime?               @db.Timestamptz(6)
+  actual_departure_at   DateTime?               @db.Timestamptz(6)
+  actual_arrival_at     DateTime?               @db.Timestamptz(6)
+  planned_duration_secs Int?
+  actual_duration_secs  Int?
+  modes_used            String[]
+  route_taken           Json?
+  user_rating           Int?                    @db.SmallInt
+  notes                 String?
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+
+  @@index([destination_geom], map: "trip_history_destination_geom_gix", type: Gist)
+  @@index([origin_geom], map: "trip_history_origin_geom_gix", type: Gist)
+  @@index([user_id, created_at(sort: Desc)], map: "trip_history_user_id_idx")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model trip_hops {
+  trip_id                    String
+  trip_base_secs             Int
+  from_stop_id               String
+  from_stop_sequence         Int
+  from_departure_offset_secs Int
+  to_stop_id                 String
+  to_stop_sequence           Int
+  to_arrival_offset_secs     Int
+
+  @@index([from_stop_id], map: "trip_hops_from_stop_idx")
+  @@index([trip_id])
+  @@ignore
+}
+
+model trips {
+  trip_id         String        @id
+  route_id        String
+  service_id      String
+  shape_id        String?
+  trip_headsign   String?
+  trip_short_name String?
+  direction_id    Int?          @db.SmallInt
+  frequencies     frequencies[]
+  stop_times      stop_times[]
+  routes          routes        @relation(fields: [route_id], references: [route_id], onDelete: NoAction, onUpdate: NoAction)
+  calendar        calendar      @relation(fields: [service_id], references: [service_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([route_id])
+  @@index([service_id])
+  @@index([shape_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model user_modes {
+  id                             BigInt   @id @default(autoincrement())
+  user_id                        String
+  mode                           String
+  is_enabled                     Boolean  @default(true)
+  tiene_auto                     Boolean?
+  rendimiento_km_l               Float?
+  costo_combustible              Float?
+  tolerancia_estacionamiento_min Int?
+  terminacion_placa              Int?     @db.SmallInt
+  holograma                      String?
+  evita_casetas                  Boolean?
+  created_at                     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, mode])
+  @@index([user_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model user_preferences {
+  user_id            String   @id
+  walking_speed_mps  Float    @default(1.4)
+  cycling_speed_mps  Float    @default(4.2)
+  max_transfers      Int      @default(3) @db.SmallInt
+  crowding_tolerance Int      @default(3) @db.SmallInt
+  weight_time        Float    @default(0.7)
+  weight_cost        Float    @default(0.3)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model walk_edges {
+  id                  BigInt                   @id @default(autoincrement())
+  from_node_type      String
+  from_node_id        String
+  to_node_type        String
+  to_node_id          String
+  distance_meters     Float
+  is_network_distance Boolean                  @default(false)
+  geom                Unsupported("geometry")?
+  computed_at         DateTime                 @default(now()) @db.Timestamptz(6)
+
+  @@unique([from_node_type, from_node_id, to_node_type, to_node_id], map: "walk_edges_unique_directed_pair")
+  @@index([from_node_type, from_node_id], map: "walk_edges_from_idx")
+  @@index([geom], map: "walk_edges_geom_gix", type: Gist)
+  @@index([to_node_type, to_node_id], map: "walk_edges_to_idx")
 }

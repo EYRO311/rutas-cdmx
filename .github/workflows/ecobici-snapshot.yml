@@ -1,0 +1,32 @@
+name: Ecobici snapshot
+
+# Corre scripts/ecobici/snapshot.ts cada 5 min. Es un script de un solo
+# disparo (conecta, descarga, escribe, termina) — no un worker persistente,
+# por la decisión de arquitectura de "nada de procesos de larga duración en
+# serverless" (CLAUDE.md #6). GitHub Actions es el cron.
+#
+# Requiere el secret DATABASE_URL apuntando al pooler de Supabase en
+# producción (nunca al Postgres local de puerto 5433, que no es alcanzable
+# desde GitHub Actions). Configúralo en Settings > Secrets and variables >
+# Actions antes de habilitar este workflow.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - run: npm run etl:ecobici:snapshot
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
