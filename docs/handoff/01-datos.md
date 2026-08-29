@@ -84,6 +84,32 @@ termina con exit code 1 y un mensaje explícito — se probó así (ver sección
 dominio de registro); `METROBUS_RT_URL` en el script es una suposición
 razonable, no un valor verificado.
 
+**Actualización 2026-08-29 — registro hecho, pero es el feed equivocado
+para esto.** Emiliano se registró en `metrobus-gtfs.sinopticoplus.com`
+(formulario real: organización, representante, teléfono, correo,
+descripción de uso, aceptar términos — **hay que renovarlo cada año**,
+dato nuevo que no estaba documentado) y descargó un ZIP, pero es el feed
+**estático** oficial de Metrobús, no el de tiempo real (GTFS-RT) que
+necesita este script. Archivado sin commitear en
+`data/raw/metrobus-gtfs-estatico/` (gitignorado, mismo criterio que el
+resto de `data/raw/`). `METROBUS_GTFS_TOKEN`/`METROBUS_RT_URL` siguen sin
+resolverse — sigue pendiente confirmar si el portal tiene una sección de
+API/tiempo real separada de la descarga de datos abiertos.
+
+**El feed estático que sí llegó es genuinamente mejor que lo que ya está
+cargado**, aunque sea para otro problema: trae `feed_info.txt` real
+(vigencia confirmada 2026-01-01 a 2026-12-31 — algo que el feed
+combinado de `datos.cdmx.gob.mx` nunca trajo, ver punto 13 de la sección
+5) y horarios reales por viaje individual (`stop_times.txt`, ~1.07M
+filas, 38,985 trips) en vez de `frequencies.txt` por headway (punto 7 de
+la sección 5, que sigue aplicando a los datos ya cargados). Usa un
+esquema de IDs completamente distinto (`agency_id=1339` numérico, no
+`'MB'`; `route_id`/`stop_id` propios) — integrarlo sería reconciliar o
+reemplazar toda la porción de Metrobús del grafo ya cargado, no un
+`UPDATE` chico. **Decisión explícita (Emiliano, 2026-08-29): no
+integrarlo todavía** — queda archivado como referencia mientras se
+prioriza `qa-rutas`.
+
 Tablas `metrobus_vehicle_positions` y `metrobus_trip_updates` existen
 (migración `0006`) pero tienen **0 filas** — nunca se pudieron llenar.
 
