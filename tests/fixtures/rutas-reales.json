@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "generado": "2026-08-28",
+    "nota": "Ver .claude/agents/qa-rutas.md y docs/handoff/08-qa.md. 'casos_calibrados' son los 6 casos mínimos que pide el brief -- necesitan un viaje REAL del usuario (origen, destino, hora, ruta que tomó, tiempo real medido puerta a puerta) para poder medir desviación (<15%) y detectar regresiones de calidad. Nadie los inventa: mientras 'estado' sea 'pendiente_datos_usuario', el campo 'datos' es null. 'casos_smoke_ecobici' son adicionales (no sustituyen a los 6 calibrados) -- pares estación-a-estación reales de bike_edges (velocidad mediana real de ecobici_trips_historical, no inventada), elegidos para cubrir zonas de la ciudad fuera del corredor Reforma/Centro que ya prueban src/routing/__tests__/index.test.ts y tests/api/routes.test.ts. No tienen tiempo puerta a puerta verificado por un humano -- solo prueban correctitud/latencia (tipos 1, 4, 5, 6 del brief), nunca calidad (tipo 2) ni regresión contra un tiempo real (tipo 3)."
+  },
+  "casos_calibrados": [
+    {
+      "id": "casa_escom_pico",
+      "descripcion": "Casa del usuario -> ESCOM (Zacatenco), hora pico.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    },
+    {
+      "id": "casa_escom_valle",
+      "descripcion": "Mismo viaje que casa_escom_pico, fuera de hora pico -- el resultado debe cambiar.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    },
+    {
+      "id": "ecobici_primer_tramo_personal",
+      "descripcion": "Un viaje real y completo del usuario (puerta a puerta) donde el primer tramo fue en Ecobici. Distinto de casos_smoke_ecobici: aquí SÍ hace falta el trayecto completo real (a dónde siguió después de la bici) y el tiempo total medido.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    },
+    {
+      "id": "auto_gana_claramente",
+      "descripcion": "Un viaje real donde ir en auto fue claramente mejor que transporte público.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    },
+    {
+      "id": "hoy_no_circula",
+      "descripcion": "Un viaje real en un día de Hoy No Circula -- AUTO debe quedar excluido para la terminación de placa/holograma de ese día.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    },
+    {
+      "id": "sin_cobertura",
+      "descripcion": "Un destino real sin cobertura de transporte público cerca -- debe degradar con elegancia (confidence degradado o no_coverage), no reventar.",
+      "estado": "pendiente_datos_usuario",
+      "datos": null
+    }
+  ],
+  "casos_smoke_ecobici": [
+    {
+      "id": "smoke_mixcoac_napoles",
+      "zona": "Mixcoac / Nápoles (sur)",
+      "origen": { "stationId": "699", "nombre": "CE-681 Guty Cárdenas - Ricardo Castro", "lat": 19.355844, "lon": -99.189141 },
+      "destino": { "stationId": "416", "nombre": "CE-347 Pennsylvania-Maximino Avila Camacho", "lat": 19.384474, "lon": -99.176084 },
+      "distanciaMetrosBikeEdge": 4489,
+      "duracionSecsBikeEdge": 915,
+      "fuente": "bike_edges real (velocidad mediana de ecobici_trips_historical), migrations/0016_bike_edges.sql"
+    },
+    {
+      "id": "smoke_delvalle_romasur",
+      "zona": "Del Valle / Roma Sur (centro-sur)",
+      "origen": { "stationId": "32", "nombre": "CE-372 Dr. Roberto Gayol-Tlacoquemécatl", "lat": 19.377966, "lon": -99.170272 },
+      "destino": { "stationId": "199", "nombre": "CE-152 Tlacotalpan-Campeche", "lat": 19.409098, "lon": -99.167181 },
+      "distanciaMetrosBikeEdge": 4500,
+      "duracionSecsBikeEdge": 917,
+      "fuente": "bike_edges real, migrations/0016_bike_edges.sql"
+    },
+    {
+      "id": "smoke_polanco_sanrafael",
+      "zona": "Polanco / San Rafael (poniente)",
+      "origen": { "stationId": "198", "nombre": "CE-196 Lago Tanganica- Av. Ejército Nacional", "lat": 19.438349, "lon": -99.192904 },
+      "destino": { "stationId": "132", "nombre": "CE-254 Alfonso Herrera-Miguel Shultz", "lat": 19.439177, "lon": -99.159957 },
+      "distanciaMetrosBikeEdge": 4499,
+      "duracionSecsBikeEdge": 917,
+      "fuente": "bike_edges real, migrations/0016_bike_edges.sql"
+    },
+    {
+      "id": "smoke_camarones_anzures",
+      "zona": "Camarones / Anzures (norte)",
+      "origen": { "stationId": "656", "nombre": "CE-513 Av. Aquiles Serdán - Av. Invierno", "lat": 19.469578, "lon": -99.189828 },
+      "destino": { "stationId": "303", "nombre": "CE-478 Laguna de Mayrán-Lago Chalco", "lat": 19.440818, "lon": -99.176961 },
+      "distanciaMetrosBikeEdge": 4496,
+      "duracionSecsBikeEdge": 916,
+      "fuente": "bike_edges real, migrations/0016_bike_edges.sql"
+    },
+    {
+      "id": "smoke_centro_romanorte",
+      "zona": "Centro Histórico / Roma Norte (oriente)",
+      "origen": { "stationId": "272", "nombre": "CE-092 San Ildefonso-República de Argentina", "lat": 19.436531, "lon": -99.131497 },
+      "destino": { "stationId": "157", "nombre": "CE-140 Mérida-Zacatecas", "lat": 19.416596, "lon": -99.156879 },
+      "distanciaMetrosBikeEdge": 4499,
+      "duracionSecsBikeEdge": 917,
+      "fuente": "bike_edges real, migrations/0016_bike_edges.sql"
+    }
+  ]
+}

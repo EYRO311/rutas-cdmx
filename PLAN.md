@@ -9,12 +9,12 @@ Actualiza este archivo después de cada handoff aprobado.
 | 3 | algoritmo-ruteo | 03-algoritmo.md | ✅ aprobado (ver nota) | 2026-08-16 |
 | 3 | modo-auto | 04-auto.md | ✅ aprobado | 2026-08-16 |
 | 3 | api-http | 05-api.md | ✅ aprobado | 2026-08-16 |
-| 4 | qa-rutas | 08-qa.md | ⬜ bloqueado — esperando datos reales del usuario | — |
+| 4 | qa-rutas | 08-qa.md | 🟡 parcial — smoke tests reales listos, 6 casos calibrados siguen bloqueados | 2026-08-28 |
 | 4 | mcp-asistente | 06-mcp.md | ✅ aprobado | 2026-08-17 |
 | 5 | aprendizaje-beta | 07-aprendizaje.md | ⬜ pendiente | — |
 
 ## Bloqueos abiertos
-- **`qa-rutas` (Fase 4) bloqueado esperando datos reales de viajes del usuario** — su propia regla es "el usuario provee los datos; si faltan, pídelos, no inventes". Pendiente: casa→ESCOM en hora pico, mismo viaje fuera de hora pico, un viaje con Ecobici en el primer tramo, un viaje donde AUTO gana claramente, un viaje en día de Hoy No Circula, un destino sin cobertura de transporte público. Se le pidieron al usuario el 2026-08-17.
+- **`qa-rutas` (Fase 4) parcialmente bloqueado esperando datos reales de viajes del usuario** — su propia regla es "el usuario provee los datos; si faltan, pídelos, no inventes". Pendiente: casa→ESCOM en hora pico, mismo viaje fuera de hora pico, un viaje con Ecobici en el primer tramo (viaje completo del usuario, no solo el tramo en bici), un viaje donde AUTO gana claramente, un viaje en día de Hoy No Circula, un destino sin cobertura de transporte público. Se le pidieron al usuario el 2026-08-17 y de nuevo el 2026-08-28 — siguen sin llegar. Mientras tanto se construyeron 5 casos "smoke" adicionales con pares reales de `bike_edges` (Ecobici) en zonas diversas de la ciudad, que sí corren hoy (correctitud/latencia, nunca calidad/regresión sin tiempo real medido) — detalle completo y 3 hallazgos reales encontrados al construirlos en `docs/handoff/08-qa.md`.
 - Registro pendiente en `metrobus-gtfs.sinopticoplus.com` para acceso al GTFS-RT. El parser (`scripts/gtfs-rt/`) ya está escrito y probado con datos sintéticos, pero 0% verificado contra el feed real; la URL exacta del endpoint tampoco está confirmada.
 - Cap de facturación en Google Cloud **sin configurar**. Bloquea el lanzamiento de `modo-auto` en Fase 3 — no se hace ningún request real a Google Routes API hasta confirmar esto.
 - Banco de casos de `qa-rutas` necesita tiempos reales medidos por el usuario.
