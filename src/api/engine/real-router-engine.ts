@@ -142,11 +142,24 @@ async function lookupEcobiciStations(pool: Pool, stationIds: string[]): Promise<
   return map;
 }
 
-async function lookupRouteModes(pool: Pool, routeIds: string[]): Promise<Map<string, Mode>> {
+/**
+ * Agregado 2026-08-28: prefiere `route_overrides.override_agency_id`
+ * (activo) sobre `routes.agency_id` crudo -- mecanismo real desde
+ * migrations/0017_route_overrides.sql, mismo patrón que
+ * `stop_overrides`/`transfer_overrides`. Resuelve el caso real conocido
+ * desde Fase 1 (`docs/handoff/01-datos.md` secciones 5.1 y 6): `TR13`
+ * (Trolebús Línea 13, `route_type=11`) traía `agency_id='SEMOVI'`, que no
+ * existe en `agency.txt` -- sin el override caía en `FALLBACK_MODE`
+ * ("transit", agencia no identificable) en vez de "trole".
+ */
+export async function lookupRouteModes(pool: Pool, routeIds: string[]): Promise<Map<string, Mode>> {
   const map = new Map<string, Mode>();
   if (routeIds.length === 0) return map;
   const { rows } = await pool.query<{ route_id: string; agency_id: string | null }>(
-    `SELECT route_id, agency_id FROM routes WHERE route_id = ANY($1);`,
+    `SELECT r.route_id, COALESCE(ro.override_agency_id, r.agency_id) AS agency_id
+     FROM routes r
+     LEFT JOIN route_overrides ro ON ro.route_id = r.route_id AND ro.is_active
+     WHERE r.route_id = ANY($1);`,
     [routeIds]
   );
   for (const r of rows) {

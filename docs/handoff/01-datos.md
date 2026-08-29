@@ -167,13 +167,23 @@ pasa limpio.
 
 ## 5. Huecos y datos sucios encontrados (lista explícita)
 
-1. **`routes.agency_id = 'SEMOVI'` no existe en `agency.txt`.** La ruta
-   `TR13` ("Trolebús Línea 13") referencia una agencia que no está entre
-   las 10 declaradas (probablemente debería ser `TROLE`, pero es una
-   suposición nuestra, no un dato de la fuente). El primer intento de ETL
-   falló por esto (violación de FK) — se relajó el FK en
-   `migrations/0007_fix_routes_agency_fk.sql` en vez de inventar el valor
-   correcto. **No se corrigió el dato.**
+1. ~~**`routes.agency_id = 'SEMOVI'` no existe en `agency.txt`.**~~
+   **Corregido 2026-08-28 — ver `migrations/0017_route_overrides.sql`.**
+   La ruta `TR13` ("Trolebús Línea 13") referenciaba una agencia que no
+   está entre las 10 declaradas. Se confirmó `TROLE` con evidencia real
+   (no la misma suposición del texto original): `route_type = 11`
+   (Trolebús, GTFS Extended Route Types, campo de la MISMA fuente) +
+   `route_short_name = '13'` consistente con la numeración de las otras
+   10 rutas TROLE confirmadas (short_name '1'-'10'). El FK se dejó
+   relajado (`migrations/0007`) — la corrección vive en `route_overrides`
+   (mismo mecanismo que `stop_overrides`/`transfer_overrides`), no un
+   `UPDATE` directo sobre el dato crudo del feed. **Hallazgo nuevo al
+   verificar esto**: `TR13_TRIP_1` no tiene NINGUNA fila en `stop_times`
+   (solo `frequencies`) — es inalcanzable por el motor de ruteo hoy,
+   independientemente de este fix. Ese es un gap distinto y más profundo
+   (falta la secuencia de paradas en la fuente), no resuelto — no hay
+   forma de reconstruirla sin inventar datos, así que se deja documentado
+   en vez de tapado.
 2. **3 filas de `stops.txt` usan comillas RFC4180** (comas y comillas
    escapadas dentro del campo `stop_name`, ej. `"Periférico, Puente hacia
    Periférico Norte"` y `"Camino de la Unión ""A"" y Constitución..."`). Un
@@ -249,8 +259,9 @@ pasa limpio.
 ## 6. Lo que falta para fases siguientes (no es trabajo de este agente)
 
 - Registrar `METROBUS_GTFS_TOKEN` y confirmar la URL del feed GTFS-RT.
-- Decidir si `TR13`/`SEMOVI` se corrige vía un mecanismo de override para
-  rutas (análogo a `stop_overrides`, que crea `modelo-grafo`), o se deja así.
+- ~~Decidir si `TR13`/`SEMOVI` se corrige vía un mecanismo de override para
+  rutas...~~ **Resuelto 2026-08-28** — ver punto 1 arriba y
+  `migrations/0017_route_overrides.sql`.
 - `modelo-grafo` crea `stop_overrides` y `transfer_overrides` (ver punto 14
   de la sección anterior) — no existen todavía.
 - `modelo-grafo` decide cómo modelar `data/raw/osm/cdmx-pedestrian-cycling.json`
