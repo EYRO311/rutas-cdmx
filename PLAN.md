@@ -26,12 +26,21 @@ el motor agota su presupuesto de búsqueda completo (`MAX_NODE_EXPANSIONS`
 línea recta, y **ningún caso probado hasta ahora en este proyecto supera
 4.5km**. Un viaje real, común, que el usuario hace seguido, no funciona.
 
-No se subieron los topes de presupuesto a ciegas para taparlo — es una
-decisión de arquitectura/producto real, sin resolver, con 3 candidatos
-anotados (presupuesto escalado por distancia, corredor de búsqueda en vez
-de dos burbujas, o medir contra infraestructura de producción real que
-todavía no existe). Detalle completo, con los números exactos y la
-investigación, en `docs/handoff/08-qa.md` sección 1.1.
+**Investigado a fondo 2026-08-28 (`docs/handoff/08-qa.md` sección 1.2):**
+se subió el presupuesto temporalmente (experimento, revertido, nunca
+commiteado) para medir cuánto hace falta de verdad. Resultado: **10,000
+nodos/15s TODAVÍA falla; hacen falta 33,602 expansiones y 45.6 segundos**
+para encontrar la ruta (que sí coincide razonablemente con la real). Es
+un salto de ~28× en nodos y ~20× en tiempo, no un ajuste fino — **subir
+el presupuesto queda descartado como solución** (45s por consulta es
+inaceptable para una API con p95 < 3s). El camino ganador (27 tramos) es
+corto comparado con las 33,602 expansiones que costó encontrarlo, lo que
+apunta a poda/heurística insuficiente en un universo de búsqueda denso
+(radio 8km en CDMX candidatea miles de paradas reales), no falta de
+presupuesto en sí. Quedan 3 rutas de arreglo real sin decidir (heurística
+admisible más fuerte, restringir a un corredor en vez de dos burbujas, o
+una arquitectura de ruteo distinta para trayectos largos) — todas son
+cambios de diseño del motor, ninguna se implementó.
 `tests/qa/rutas-reales.test.ts` ya documenta este comportamiento como
 test que pasa (afirma el `no_coverage` real, no lo oculta) — si algún día
 el motor encuentra ruta para este caso, hay que actualizar esa aserción
