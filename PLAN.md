@@ -9,12 +9,36 @@ Actualiza este archivo después de cada handoff aprobado.
 | 3 | algoritmo-ruteo | 03-algoritmo.md | ✅ aprobado (ver nota) | 2026-08-16 |
 | 3 | modo-auto | 04-auto.md | ✅ aprobado | 2026-08-16 |
 | 3 | api-http | 05-api.md | ✅ aprobado | 2026-08-16 |
-| 4 | qa-rutas | 08-qa.md | 🟡 parcial — smoke tests reales listos, 6 casos calibrados siguen bloqueados | 2026-08-28 |
+| 4 | qa-rutas | 08-qa.md | 🔴 parcial — 2/6 casos calibrados llegaron y expusieron un hallazgo crítico (ver abajo), 4 siguen bloqueados | 2026-08-28 |
 | 4 | mcp-asistente | 06-mcp.md | ✅ aprobado | 2026-08-17 |
 | 5 | aprendizaje-beta | 07-aprendizaje.md | ⬜ pendiente | — |
 
+## 🔴 Hallazgo crítico abierto (2026-08-28) — el commute real del usuario no se puede rutear
+
+Emiliano dio 2 de los 6 `casos_calibrados` de `qa-rutas` (casa en Río
+Becerra 129, Col. 8 de Agosto → ESCOM/Zacatenco, dos rutas reales de
+1h20 y 1h40 medidas por él). **Las dos dan `no_coverage` (0 itinerarios)
+contra el motor real.** Investigado a fondo: NO es falta de cobertura
+geográfica (las 3 paradas reales de transbordo del viaje en Metro caen
+dentro del radio de búsqueda, verificado con `ST_Distance` real) — es que
+el motor agota su presupuesto de búsqueda completo (`MAX_NODE_EXPANSIONS`
+1200, `SEARCH_TIME_BUDGET_MS` 2200) en un commute real de ~12.8km en
+línea recta, y **ningún caso probado hasta ahora en este proyecto supera
+4.5km**. Un viaje real, común, que el usuario hace seguido, no funciona.
+
+No se subieron los topes de presupuesto a ciegas para taparlo — es una
+decisión de arquitectura/producto real, sin resolver, con 3 candidatos
+anotados (presupuesto escalado por distancia, corredor de búsqueda en vez
+de dos burbujas, o medir contra infraestructura de producción real que
+todavía no existe). Detalle completo, con los números exactos y la
+investigación, en `docs/handoff/08-qa.md` sección 1.1.
+`tests/qa/rutas-reales.test.ts` ya documenta este comportamiento como
+test que pasa (afirma el `no_coverage` real, no lo oculta) — si algún día
+el motor encuentra ruta para este caso, hay que actualizar esa aserción
+como una mejora, no arreglar un test roto.
+
 ## Bloqueos abiertos
-- **`qa-rutas` (Fase 4) parcialmente bloqueado esperando datos reales de viajes del usuario** — su propia regla es "el usuario provee los datos; si faltan, pídelos, no inventes". Pendiente: casa→ESCOM en hora pico, mismo viaje fuera de hora pico, un viaje con Ecobici en el primer tramo (viaje completo del usuario, no solo el tramo en bici), un viaje donde AUTO gana claramente, un viaje en día de Hoy No Circula, un destino sin cobertura de transporte público. Se le pidieron al usuario el 2026-08-17 y de nuevo el 2026-08-28 — siguen sin llegar. Mientras tanto se construyeron 5 casos "smoke" adicionales con pares reales de `bike_edges` (Ecobici) en zonas diversas de la ciudad, que sí corren hoy (correctitud/latencia, nunca calidad/regresión sin tiempo real medido) — detalle completo y 3 hallazgos reales encontrados al construirlos en `docs/handoff/08-qa.md`.
+- **`qa-rutas` (Fase 4) parcialmente bloqueado esperando datos reales de viajes del usuario** — su propia regla es "el usuario provee los datos; si faltan, pídelos, no inventes". Ya llegaron 2 (ver hallazgo crítico arriba). Pendiente: mismo viaje casa→ESCOM fuera de hora pico (para contrastar con el de hora pico que ya llegó), un viaje donde AUTO gana claramente, un viaje en día de Hoy No Circula, un destino sin cobertura de transporte público. Pedidos el 2026-08-17 y de nuevo el 2026-08-28. Mientras tanto se construyeron 5 casos "smoke" adicionales con pares reales de `bike_edges` (Ecobici) en zonas diversas de la ciudad, que sí corren hoy (correctitud/latencia, nunca calidad/regresión sin tiempo real medido) — detalle completo y 3 hallazgos reales encontrados al construirlos en `docs/handoff/08-qa.md`.
 - Registro pendiente en `metrobus-gtfs.sinopticoplus.com` para acceso al GTFS-RT. El parser (`scripts/gtfs-rt/`) ya está escrito y probado con datos sintéticos, pero 0% verificado contra el feed real; la URL exacta del endpoint tampoco está confirmada.
 - Cap de facturación en Google Cloud **sin configurar**. Bloquea el lanzamiento de `modo-auto` en Fase 3 — no se hace ningún request real a Google Routes API hasta confirmar esto.
 - Banco de casos de `qa-rutas` necesita tiempos reales medidos por el usuario.

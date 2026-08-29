@@ -6,21 +6,71 @@
   "casos_calibrados": [
     {
       "id": "casa_escom_pico",
-      "descripcion": "Casa del usuario -> ESCOM (Zacatenco), hora pico.",
-      "estado": "pendiente_datos_usuario",
-      "datos": null
+      "descripcion": "Casa del usuario -> ESCOM (Zacatenco) vía Metro (L7->L6->L5, 2 transbordos), dado por Emiliano el 2026-08-28.",
+      "estado": "confirmado_con_supuestos",
+      "supuestos_pendientes_de_confirmar": [
+        "Origen: geocodificado a nivel de calle (OpenStreetMap Nominatim, 'Río Becerra, Benito Juárez') porque no hay una fuente exacta del número 129 disponible aquí -- puede estar desplazado hasta ~150-200m del domicilio real.",
+        "'casa_escom_valle' (mismo viaje fuera de hora pico) sigue pendiente -- este caso por sí solo no permite medir el contraste pico/valle que pide el brief."
+      ],
+      "datos": {
+        "origen": { "direccion": "Río Becerra 129, Col. 8 de Agosto, CP 03820, CDMX (geocodificado a nivel calle)", "lat": 19.3887016, "lon": -99.181318 },
+        "destino": { "descripcion": "ESCOM (entrada principal, vía Metro Politécnico L5)", "lat": 19.50068, "lon": -99.14921, "stopIdReferencia": "B_0200L5-POLITECNICO" },
+        "horaSalida": "15:00:00 CDMX (confirmado por Emiliano 2026-08-28)",
+        "rutaEsperada": [
+          "Caminar: casa -> Metro San Pedro de los Pinos (L7)",
+          "Metro L7: San Pedro de los Pinos -> El Rosario (transbordo a L6)",
+          "Metro L6: El Rosario -> Instituto del Petróleo (transbordo a L5)",
+          "Metro L5: Instituto del Petróleo -> Politécnico",
+          "Caminar: Politécnico -> ESCOM"
+        ],
+        "tiempoRealMedidoSecs": 4800,
+        "tiempoRealMedidoTexto": "1 hora 20 minutos, puerta a puerta",
+        "costoRealPesos": 5,
+        "costoRealTexto": "$5 (tarifa plana del Metro -- confirmado por Emiliano 2026-08-28: 'hoy solo 5 por el metro')"
+      },
+      "resultadoMotorActual": {
+        "verificado": "2026-08-28 contra planRoute() real, Postgres local",
+        "confidence": "no_coverage",
+        "itinerariosEncontrados": 0,
+        "distanciaRectaOrigenDestinoM": 12846,
+        "diagnostico": "NO es un problema de radio de búsqueda -- San Pedro de los Pinos, El Rosario e Instituto del Petróleo caen dentro del radio de reintento (8000m) desde origen/destino respectivamente (verificado con ST_Distance real). Es agotamiento del presupuesto de búsqueda: expandedNodeCount llega a MAX_NODE_EXPANSIONS (1200) y elapsedMs a SEARCH_TIME_BUDGET_MS (2200) en AMBOS intentos (radio 5000 y 8000) sin terminar de explorar el camino real. Ningún caso probado hasta ahora en este proyecto (El Ángel/Zócalo, los 5 smoke de Ecobici) supera 4.5km -- este commute real son ~12.8km en línea recta, probablemente 15-18km por la ruta real del Metro. HALLAZGO GRAVE: un viaje que el usuario hace de verdad, con frecuencia, no se puede rutear hoy."
+      }
     },
     {
       "id": "casa_escom_valle",
-      "descripcion": "Mismo viaje que casa_escom_pico, fuera de hora pico -- el resultado debe cambiar.",
+      "descripcion": "Mismo viaje que casa_escom_pico (misma ruta Metro), fuera de hora pico -- el resultado debe cambiar.",
       "estado": "pendiente_datos_usuario",
       "datos": null
     },
     {
       "id": "ecobici_primer_tramo_personal",
-      "descripcion": "Un viaje real y completo del usuario (puerta a puerta) donde el primer tramo fue en Ecobici. Distinto de casos_smoke_ecobici: aquí SÍ hace falta el trayecto completo real (a dónde siguió después de la bici) y el tiempo total medido.",
-      "estado": "pendiente_datos_usuario",
-      "datos": null
+      "descripcion": "Viaje real y completo de Emiliano (puerta a puerta) donde el primer tramo fue en Ecobici, dado el 2026-08-28: casa -> Ecobici -> Metrobús (2 tramos) -> RTP -> ESCOM (entrada trasera, junto a Plaza Torres Lindavista).",
+      "estado": "confirmado_con_supuestos",
+      "supuestos_pendientes_de_confirmar": [
+        "Ruta del camión RTP (La Raza -> ESCOM entrada trasera): Emiliano confirmó que no recuerda el número -- queda sin identificar a propósito (no inventar cuál de las 3 candidatas reales fue). Confirmado que es RTP, no un pesero/combi (color morado)."
+      ],
+      "datos": {
+        "origen": { "direccion": "Río Becerra 129, Col. 8 de Agosto, CP 03820, CDMX (mismo geocode que casa_escom_pico)", "lat": 19.3887016, "lon": -99.181318 },
+        "destino": { "descripcion": "ESCOM, entrada trasera junto a Plaza Torres Lindavista", "lat": 19.5059179, "lon": -99.1443638 },
+        "horaSalida": "15:00:00 CDMX (confirmado por Emiliano 2026-08-28)",
+        "rutaEsperada": [
+          "Caminar: casa -> estación Ecobici Avenida 1 - Calle 7 (station_id 418, CE-328)",
+          "Ecobici: Avenida 1 - Calle 7 -> estación cerca del WTC (confirmado por Emiliano 2026-08-28: station_id 277, CE-305 Avenida del Parque-Arizona)",
+          "Caminar: estación Ecobici -> Metrobús Poliforum (B_0300L1-POLIFORUM)",
+          "Metrobús L1: Poliforum -> La Raza",
+          "Camión RTP (morado, número de ruta no identificado -- ver supuestos): La Raza -> ESCOM entrada trasera"
+        ],
+        "tiempoRealMedidoSecs": 6000,
+        "tiempoRealMedidoTexto": "1 hora 40 minutos, puerta a puerta",
+        "costoRealPesos": 15.5,
+        "costoRealTexto": "$6 Metrobús + $9.50 camión RTP morado = $15.50 (confirmado por Emiliano 2026-08-28; no incluye costo de Ecobici si aplicó)"
+      },
+      "resultadoMotorActual": {
+        "verificado": "2026-08-28 contra planRoute() real, Postgres local",
+        "confidence": "no_coverage",
+        "itinerariosEncontrados": 0,
+        "diagnostico": "Mismo hallazgo que casa_escom_pico -- ver ese caso. expandedNodeCount y elapsedMs agotados en ambos intentos de radio."
+      }
     },
     {
       "id": "auto_gana_claramente",

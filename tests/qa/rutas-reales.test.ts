@@ -82,12 +82,45 @@ async function postRoutes(payload: Record<string, unknown>) {
   return app.inject({ method: "POST", url: "/v1/routes", headers: { "x-api-key": apiKey }, payload });
 }
 
-describe("Calibrados (bloqueados -- ver fixture y docs/handoff/08-qa.md)", () => {
-  for (const caso of fixture.casos_calibrados) {
+describe("Calibrados pendientes (bloqueados -- ver fixture y docs/handoff/08-qa.md)", () => {
+  for (const caso of fixture.casos_calibrados.filter((c) => c.estado === "pendiente_datos_usuario")) {
     it.skip(`${caso.id}: ${caso.descripcion} [bloqueado: ${caso.estado}]`, () => {
       // No implementado a propósito -- se desbloquea cuando el usuario dé
       // origen/destino/hora/ruta/tiempo real. No inventar el dato para
       // que el test "pase": eso rompería el propósito de qa-rutas.
+    });
+  }
+});
+
+describe("Calibrados con datos reales — HALLAZGO GRAVE (2026-08-28)", () => {
+  // Emiliano dio 2 viajes reales, completos, con tiempo puerta a puerta
+  // medido (tests/fixtures/rutas-reales.json). Investigado a fondo antes
+  // de escribir esto: NO es un problema de radio de búsqueda (San Pedro de
+  // los Pinos, El Rosario e Instituto del Petróleo caen dentro del radio
+  // de reintento de 8000m, verificado con ST_Distance real) -- es
+  // agotamiento puro del presupuesto de búsqueda (MAX_NODE_EXPANSIONS /
+  // SEARCH_TIME_BUDGET_MS) en un viaje real de ~12.8km en línea recta.
+  // NINGÚN caso probado hasta hoy en este proyecto supera 4.5km. Regla
+  // dura del brief: "si un caso falla, es información: repórtala" -- estos
+  // dos tests documentan el comportamiento REAL (no_coverage), no lo que
+  // debería pasar. No se subieron los topes de presupuesto a ciegas para
+  // taparlo (misma decisión que docs/handoff/08-qa.md sección 3.4).
+  for (const caso of fixture.casos_calibrados.filter((c) => c.estado === "confirmado_con_supuestos")) {
+    it(`${caso.id}: viaje real de ${(caso.datos!.tiempoRealMedidoSecs / 60).toFixed(0)} min medido por el usuario -> HOY el motor responde no_coverage (0 rutas)`, async () => {
+      const res = await postRoutes({
+        origin: { lat: caso.datos!.origen.lat, lon: caso.datos!.origen.lon },
+        destination: { lat: caso.datos!.destino.lat, lon: caso.datos!.destino.lon },
+        departure_at: cdmxServiceDateAndSecsToDate(SERVICE_DATE, 15 * 3600).toISOString(),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.error).toBeNull();
+      // Comportamiento REAL, no deseado -- ver comentario del describe.
+      // Si esto empieza a pasar (rutas.length > 0), es una mejora real que
+      // hay que celebrar, no un test roto: actualizar esta aserción Y
+      // tests/fixtures/rutas-reales.json#resultadoMotorActual cuando pase.
+      expect(body.data.routes).toEqual([]);
+      expect(body.meta.engine.plan_confidence).toBe("no_coverage");
     });
   }
 });
@@ -172,8 +205,13 @@ describe("Hallazgo real: smoke_camarones_anzures está al límite del presupuest
     // agotar el presupuesto de expansión, no por otra causa.
     if (body.data.routes.length === 0) {
       expect(body.meta.engine.plan_confidence).toBe("no_coverage");
+      // Se afirma la CAUSA (agotó el presupuesto), no una cifra exacta de
+      // expandedNodeCount -- ese número varía con la carga real del
+      // proceso (medido entre 1040 y 1200 según qué más corrió antes en
+      // el mismo archivo/suite) y encadenar un umbral numérico a esa
+      // variación real solo reintroduce la flakiness que
+      // vitest.config.ts ya resolvió a nivel de archivo.
       expect(body.meta.engine.truncated_by_expansion_cap).toBe(true);
-      expect(body.meta.engine.expanded_node_count).toBeGreaterThan(1100);
     } else {
       expect(body.data.routes.length).toBeGreaterThan(0);
     }
