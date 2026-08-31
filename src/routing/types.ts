@@ -196,7 +196,34 @@ export interface Itinerary {
   scalarCost: number;
 }
 
-export type PlanConfidence = "full" | "degraded_radius_8km" | "no_coverage";
+/**
+ * `"degraded_long_distance"` agregado 2026-08-30 (ver
+ * docs/handoff/03-algoritmo.md sección 12): se devuelve cuando la distancia
+ * recta origen-destino supera `WINDOW.LONG_DISTANCE_THRESHOLD_METERS` y el
+ * motor SÍ encuentra un itinerario, pero usando el tier de búsqueda
+ * extendido (corredor + presupuesto de nodos/tiempo mayor,
+ * `MAX_NODE_EXPANSIONS_LONG_DISTANCE`/`SEARCH_TIME_BUDGET_MS_LONG_DISTANCE`)
+ * que **incumple explícitamente** el criterio p95 < 3s del proyecto para
+ * esta clase de consulta. Un consumidor de la API no debería confundir esto
+ * con `"full"` (rápido, dentro del presupuesto normal) — la ruta en sí es
+ * tan real/correcta como cualquier otra, el nombre refleja el COSTO de
+ * obtenerla, no su calidad.
+ *
+ * `"degraded_dense"` agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md
+ * sección 13): mismo tier extendido y mismo costo de latencia que
+ * `"degraded_long_distance"`, pero disparado por un motivo DISTINTO — un
+ * viaje CORTO (< `LONG_DISTANCE_THRESHOLD_METERS`) cuyo tier normal agotó el
+ * presupuesto sin cobertura porque el corredor es denso/difícil de rutear
+ * (no por la distancia). Se separa de `"degraded_long_distance"` para no
+ * etiquetar un viaje de ~4km como "larga distancia": el consumidor ve QUÉ
+ * clase de degradación ocurrió, no solo que la hubo.
+ */
+export type PlanConfidence =
+  | "full"
+  | "degraded_radius_8km"
+  | "degraded_long_distance"
+  | "degraded_dense"
+  | "no_coverage";
 
 export interface PlanResult {
   confidence: PlanConfidence;

@@ -6,12 +6,51 @@ Actualiza este archivo después de cada handoff aprobado.
 |---|---|---|---|---|
 | 1 | datos-gtfs | 01-datos.md | ✅ aprobado | 2026-08-16 |
 | 2 | modelo-grafo | 02-grafo.md | ✅ aprobado | 2026-08-16 |
-| 3 | algoritmo-ruteo | 03-algoritmo.md | ✅ aprobado (ver nota) | 2026-08-16 |
+| 3 | algoritmo-ruteo | 03-algoritmo.md | ✅ aprobado (ver nota) — secciones 12 (tier de distancia larga) y 13 (fallback denso) agregadas | 2026-08-16 / 2026-08-30 / 2026-08-31 |
 | 3 | modo-auto | 04-auto.md | ✅ aprobado | 2026-08-16 |
 | 3 | api-http | 05-api.md | ✅ aprobado | 2026-08-16 |
 | 4 | qa-rutas | 08-qa.md | 🔴 parcial — 2/6 casos calibrados llegaron y expusieron un hallazgo crítico (ver abajo), 4 siguen bloqueados | 2026-08-28 |
 | 4 | mcp-asistente | 06-mcp.md | ✅ aprobado | 2026-08-17 |
 | 5 | aprendizaje-beta | 07-aprendizaje.md | ⬜ pendiente | — |
+
+## 🟡 Hallazgo crítico — mitigado, no resuelto del todo (actualizado 2026-08-30)
+
+**Resolución de `algoritmo-ruteo` (`docs/handoff/03-algoritmo.md` sección
+12), verificada de forma independiente por el orquestador** (suite
+completa corrida en local: 172 passed | 4 skipped, coincide exacto con lo
+reportado; constantes de `config.ts` confirmadas contra el handoff): se
+agregó un **tier de distancia larga** (heurística A* admisible + filtro de
+corredor elíptico, activado cuando origen-destino supera 6km en línea
+recta). `casa_escom_pico` ya **encuentra 1 itinerario real** (antes:
+`no_coverage`) — 66.2 min, 2 transbordos, $18, camión local + RTP + Metro
+L5 (combinación de modos distinta a la que reportó Emiliano, pero
+Pareto-válida). El tier normal (≤6km) queda exactamente igual, p95 =
+2,202.7ms, **cero regresión**.
+
+**Lo que sigue sin resolver, a propósito y documentado, no oculto:** el
+tier largo tarda **~22-25 segundos** por consulta — **10× por encima del
+presupuesto p95<3s del proyecto**. Es degradación deliberada
+(`confidence: "degraded_long_distance"`, nunca `full`), no un descuido:
+el proyecto prefirió devolver una ruta real correcta a forzar un
+presupuesto incompatible con la arquitectura actual (A* nodo-por-nodo
+contra Postgres, sin precómputo). El camino para bajar esto de verdad es
+la opción (d) descartada en `08-qa.md` (transfer patterns/hub labeling
+con tabla precalculada) — es un proyecto del tamaño de una fase completa,
+no un ajuste de `src/routing/`.
+
+**Nuevo bloqueo real para producción, sin resolver:** `SEARCH_TIME_BUDGET_MS_LONG_DISTANCE`
+(60s) puede exceder el timeout de función serverless de Vercel (10s en
+plan gratuito) — reportado por `algoritmo-ruteo` para que `api-http`/
+despliegue decida (cola asíncrona, plan con timeout mayor, o esperar a
+(d)). No se ha decidido nada todavía.
+
+**Pendiente para `qa-rutas`:** validar tipo-2 (desviación <15%) contra
+este itinerario — el motor da 66 min vs 80 min reales medidos (~17% más
+rápido, fuera del ±15%, pero por una combinación de modos distinta, no
+necesariamente un error del motor).
+
+<details>
+<summary>Hallazgo original (2026-08-28), para contexto histórico</summary>
 
 ## 🔴 Hallazgo crítico abierto (2026-08-28) — el commute real del usuario no se puede rutear
 
@@ -45,6 +84,8 @@ cambios de diseño del motor, ninguna se implementó.
 test que pasa (afirma el `no_coverage` real, no lo oculta) — si algún día
 el motor encuentra ruta para este caso, hay que actualizar esa aserción
 como una mejora, no arreglar un test roto.
+
+</details>
 
 ## Bloqueos abiertos
 - **`qa-rutas` (Fase 4) parcialmente bloqueado esperando datos reales de viajes del usuario** — su propia regla es "el usuario provee los datos; si faltan, pídelos, no inventes". Ya llegaron 2 (ver hallazgo crítico arriba). Pendiente: mismo viaje casa→ESCOM fuera de hora pico (para contrastar con el de hora pico que ya llegó), un viaje donde AUTO gana claramente, un viaje en día de Hoy No Circula, un destino sin cobertura de transporte público. Pedidos el 2026-08-17 y de nuevo el 2026-08-28. Mientras tanto se construyeron 5 casos "smoke" adicionales con pares reales de `bike_edges` (Ecobici) en zonas diversas de la ciudad, que sí corren hoy (correctitud/latencia, nunca calidad/regresión sin tiempo real medido) — detalle completo y 3 hallazgos reales encontrados al construirlos en `docs/handoff/08-qa.md`.

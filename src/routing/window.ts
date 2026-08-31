@@ -55,6 +55,52 @@ export async function resolveSearchUniverse(
 }
 
 /**
+ * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12,
+ * candidato (c) de docs/handoff/08-qa.md sección 1.2). Filtro de corredor:
+ * en vez de aceptar TODA parada dentro de las dos burbujas de radio fijo
+ * (origen y destino, unión ya calculada por `resolveSearchUniverse`), se
+ * descarta cualquiera cuyo "desvío" real (distancia recta a origen +
+ * distancia recta a destino) supere `ellipseFactor` veces la distancia
+ * recta origen-destino — una elipse con origen/destino como focos. Pura
+ * (no consulta Postgres) — reusa las coordenadas que `resolveSearchUniverse`
+ * ya trajo en `originCandidates`/`destinationCandidates`.
+ *
+ * Estaciones Ecobici (u otro `stopId` sin coordenadas conocidas aquí, ver
+ * `resolveSearchUniverse`) NUNCA se excluyen por este filtro: filtrarlas
+ * sin saber su posición real arriesgaría perder cobertura de bici sin
+ * ninguna ganancia medible de rendimiento (ya son un subconjunto acotado
+ * por `MAX_BIKE_EDGES_PER_EXPANSION`/`MAX_WALK_TO_ECOBICI_EDGES_PER_EXPANSION`,
+ * nunca la fuente real del problema de fan-out que motiva este filtro).
+ *
+ * Ver `WINDOW.CORRIDOR_ELLIPSE_FACTOR` (config.ts) para la calibración real
+ * de qué valor de `ellipseFactor` preserva la ruta óptima conocida.
+ */
+export function applyCorridorFilter(
+  universe: SearchUniverse,
+  origin: LonLat,
+  destination: LonLat,
+  ellipseFactor: number
+): Set<string> {
+  const odMeters = haversineMeters(origin, destination);
+  const maxDetourMeters = ellipseFactor * odMeters;
+  const knownCoords = new Map<string, LonLat>();
+  for (const c of [...universe.originCandidates, ...universe.destinationCandidates]) {
+    knownCoords.set(c.stopId, { lon: c.lon, lat: c.lat });
+  }
+  const filtered = new Set<string>();
+  for (const stopId of universe.allowedStopIds) {
+    const coords = knownCoords.get(stopId);
+    if (!coords) {
+      filtered.add(stopId); // sin coordenadas conocidas -- no se excluye, ver comentario arriba.
+      continue;
+    }
+    const detourMeters = haversineMeters(coords, origin) + haversineMeters(coords, destination);
+    if (detourMeters <= maxDetourMeters) filtered.add(stopId);
+  }
+  return filtered;
+}
+
+/**
  * Paradas de ACCESO a pie desde el punto exacto (origen o destino). Radio
  * deliberadamente más chico que el de búsqueda (WINDOW.ACCESS_WALK_RADIUS_METERS)
  * — ver justificación en config.ts.

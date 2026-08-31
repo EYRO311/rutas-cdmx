@@ -4,11 +4,19 @@
  * duras ("un test que nunca ha fallado no está probando nada", "no
  * ajustes el umbral para que pasen").
  *
- * Estado real (2026-08-28, ver docs/handoff/08-qa.md): los 6 casos
- * calibrados del brief (`fixture.casos_calibrados`) siguen bloqueados
- * esperando datos reales del usuario -- sin ellos NO se puede medir tipo 2
- * (Calidad, desviación <15% contra tiempo real) ni tipo 3 (Regresión
- * contra ese tiempo). Lo que sí corre hoy, contra Postgres real:
+ * Estado real (2026-08-30, ver docs/handoff/03-algoritmo.md sección 12):
+ * de los 6 casos calibrados del brief, 2 (`casa_escom_pico`,
+ * `ecobici_primer_tramo_personal`) ya llegaron y AHORA sí encuentran
+ * itinerario (`plan_confidence: "degraded_long_distance"`, tier de
+ * distancia larga agregado 2026-08-30 -- ver describe al FINAL de este
+ * archivo, agrupado con los demás casos pesados >6km) -- antes daban
+ * `no_coverage` (hallazgo original de `docs/handoff/08-qa.md` sección 1.1,
+ * ya resuelto). Sigue sin poder medirse tipo 2 (Calidad, desviación <15%)
+ * ni tipo 3 (Regresión) de forma automática para ellos: el itinerario
+ * encontrado usa una combinación de modos real pero distinta a la que
+ * reportó el usuario, no comparable tramo a tramo sin trabajo adicional.
+ * Los otros 4 casos calibrados siguen bloqueados esperando datos reales
+ * del usuario. Lo que sí corre hoy, contra Postgres real:
  * - Tipo 1 (Correctitud) sobre `casos_smoke_ecobici` (pares reales de
  *   `bike_edges`, geográficamente diversos -- ver fixture).
  * - Tipo 4 (Casos degenerados).
@@ -88,39 +96,6 @@ describe("Calibrados pendientes (bloqueados -- ver fixture y docs/handoff/08-qa.
       // No implementado a propósito -- se desbloquea cuando el usuario dé
       // origen/destino/hora/ruta/tiempo real. No inventar el dato para
       // que el test "pase": eso rompería el propósito de qa-rutas.
-    });
-  }
-});
-
-describe("Calibrados con datos reales — HALLAZGO GRAVE (2026-08-28)", () => {
-  // Emiliano dio 2 viajes reales, completos, con tiempo puerta a puerta
-  // medido (tests/fixtures/rutas-reales.json). Investigado a fondo antes
-  // de escribir esto: NO es un problema de radio de búsqueda (San Pedro de
-  // los Pinos, El Rosario e Instituto del Petróleo caen dentro del radio
-  // de reintento de 8000m, verificado con ST_Distance real) -- es
-  // agotamiento puro del presupuesto de búsqueda (MAX_NODE_EXPANSIONS /
-  // SEARCH_TIME_BUDGET_MS) en un viaje real de ~12.8km en línea recta.
-  // NINGÚN caso probado hasta hoy en este proyecto supera 4.5km. Regla
-  // dura del brief: "si un caso falla, es información: repórtala" -- estos
-  // dos tests documentan el comportamiento REAL (no_coverage), no lo que
-  // debería pasar. No se subieron los topes de presupuesto a ciegas para
-  // taparlo (misma decisión que docs/handoff/08-qa.md sección 3.4).
-  for (const caso of fixture.casos_calibrados.filter((c) => c.estado === "confirmado_con_supuestos")) {
-    it(`${caso.id}: viaje real de ${(caso.datos!.tiempoRealMedidoSecs / 60).toFixed(0)} min medido por el usuario -> HOY el motor responde no_coverage (0 rutas)`, async () => {
-      const res = await postRoutes({
-        origin: { lat: caso.datos!.origen.lat, lon: caso.datos!.origen.lon },
-        destination: { lat: caso.datos!.destino.lat, lon: caso.datos!.destino.lon },
-        departure_at: cdmxServiceDateAndSecsToDate(SERVICE_DATE, 15 * 3600).toISOString(),
-      });
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.error).toBeNull();
-      // Comportamiento REAL, no deseado -- ver comentario del describe.
-      // Si esto empieza a pasar (rutas.length > 0), es una mejora real que
-      // hay que celebrar, no un test roto: actualizar esta aserción Y
-      // tests/fixtures/rutas-reales.json#resultadoMotorActual cuando pase.
-      expect(body.data.routes).toEqual([]);
-      expect(body.meta.engine.plan_confidence).toBe("no_coverage");
     });
   }
 });
@@ -229,21 +204,6 @@ describe("Tipo 4 — Casos degenerados", () => {
     expect(res.json().error).toBeNull();
   });
 
-  it("destino en medio del lago de Xochimilco (sin parada real cerca): degrada, no revienta", async () => {
-    const res = await postRoutes({
-      origin: { lat: 19.4326, lon: -99.1332 },
-      destination: { lat: 19.2686, lon: -99.1041 }, // agua del lago, no una calle
-      departure_at: cdmxServiceDateAndSecsToDate(SERVICE_DATE, 8 * 3600).toISOString(),
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.error).toBeNull();
-    // No se afirma "siempre no_coverage": si hay una parada real caminable
-    // cerca de la orilla, es una ruta legítima. Lo único que se exige es
-    // que no truene y que la respuesta sea honesta sobre su confianza.
-    expect(["full", "degraded_radius_8km", "no_coverage"]).toContain(body.meta.engine.plan_confidence);
-  });
-
   it("3am, sin servicio de Metro activo: no revienta", async () => {
     const res = await postRoutes({
       origin: { lat: 19.427, lon: -99.1677 }, // El Ángel
@@ -299,4 +259,80 @@ describe("Tipo 6 — Sin estado en memoria entre requests (aproximada)", () => {
     expect(first.json().meta.engine.db_query_count).toBeGreaterThan(0);
     expect(second.json().meta.engine.db_query_count).toBeGreaterThan(0);
   });
+});
+
+describe("Casos de distancia larga — RESUELTO (2026-08-30, ver docs/handoff/03-algoritmo.md sección 12)", () => {
+  // Agrupados AL FINAL del archivo a propósito (movidos aquí desde su
+  // ubicación original entre "Calibrados pendientes" y "Tipo 1"): cada uno
+  // de estos 3 casos cruza WINDOW.LONG_DISTANCE_THRESHOLD_METERS (6km,
+  // agregado 2026-08-30) y entra al tier de búsqueda de distancia larga
+  // (heurística A* admisible + filtro de corredor + presupuesto de
+  // nodos/tiempo extendido -- ver docs/handoff/03-algoritmo.md sección 12),
+  // que mide entre 25 y 42 segundos REALES de tiempo de pared cada uno --
+  // no un typo, ver la calibración completa en el handoff.
+  //
+  // Hallazgo real encontrado al integrar esto a la suite (2026-08-30, no
+  // documentado antes de esta pasada): con estos 3 casos ubicados ANTES de
+  // "Tipo 1"/"Tipo 4"/"Tipo 5" (su posición original en el archivo), la
+  // carga sostenida de sus ~15,000-16,000 round-trips reales a Postgres
+  // CADA UNO (más de dos minutos de tráfico sostenido contra el único
+  // contenedor local `rutas-db`) dejaba contención residual suficiente
+  // para que pruebas SIN NINGUNA relación con distancia larga (ej.
+  // `smoke_polanco_sanrafael`, un caso corto ya estable) fallaran por
+  // agotar su propio presupuesto de 2,200ms justo después -- confirmado
+  // corriendo el archivo completo en aislamiento repetidas veces. Es la
+  // MISMA clase de hallazgo que ya documentaron la sección 11.2 del
+  // handoff y el describe de `smoke_camarones_anzures` arriba (deadline de
+  // reloj de pared + contención real de un solo Postgres local
+  // compartido), simplemente amplificado porque estos 3 casos son
+  // individualmente ~13-20x más pesados que cualquier query medida antes
+  // en este proyecto. Mitigación real aplicada: mover estos 3 casos al
+  // FINAL del archivo reduce el blaste radius dentro de este archivo (ya
+  // no contaminan pruebas que corren después DE ESTE archivo). **Persiste
+  // como limitación conocida, no resuelta del todo**: correr la SUITE
+  // COMPLETA del repo (varios archivos, `fileParallelism: false`) puede
+  // seguir viendo contención cruzada entre ESTE archivo y el/los que
+  // corran inmediatamente después, dependiente del orden de descubrimiento
+  // de archivos de vitest (no controlado explícitamente por este
+  // proyecto). No se "arregla" subiendo presupuestos a ciegas -- es un
+  // límite real de compartir un solo Postgres local entre pruebas pesadas
+  // y pruebas sensibles a latencia, documentado explícitamente igual que
+  // el resto de esta clase de hallazgos en el proyecto.
+  for (const caso of fixture.casos_calibrados.filter((c) => c.estado === "confirmado_con_supuestos")) {
+    it(`${caso.id}: viaje real de ${(caso.datos!.tiempoRealMedidoSecs / 60).toFixed(0)} min medido por el usuario -> el motor ahora SÍ encuentra itinerario (degraded_long_distance, tier de distancia larga)`, async () => {
+      const res = await postRoutes({
+        origin: { lat: caso.datos!.origen.lat, lon: caso.datos!.origen.lon },
+        destination: { lat: caso.datos!.destino.lat, lon: caso.datos!.destino.lon },
+        departure_at: cdmxServiceDateAndSecsToDate(SERVICE_DATE, 15 * 3600).toISOString(),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.error).toBeNull();
+      expect(body.data.routes.length).toBeGreaterThan(0);
+      expect(body.meta.engine.plan_confidence).toBe("degraded_long_distance");
+      // No se afirma coincidencia con rutaEsperada (ver comentario del
+      // describe original más arriba en este archivo) -- solo que existe
+      // un itinerario real, con tramos que conectan, puerta a puerta.
+      const route = body.data.routes[0];
+      expect(route.legs.length).toBeGreaterThan(0);
+      expect(route.summary.duration_s).toBeGreaterThan(0);
+    }, 90_000); // el tier de distancia larga mide 25-42s reales -- ver sección 12 del handoff.
+  }
+
+  it("destino en medio del lago de Xochimilco (sin parada real cerca, ~18.4km): degrada, no revienta", async () => {
+    const res = await postRoutes({
+      origin: { lat: 19.4326, lon: -99.1332 },
+      destination: { lat: 19.2686, lon: -99.1041 }, // agua del lago, no una calle
+      departure_at: cdmxServiceDateAndSecsToDate(SERVICE_DATE, 8 * 3600).toISOString(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.error).toBeNull();
+    // No se afirma "siempre no_coverage": si hay una parada real caminable
+    // cerca de la orilla, es una ruta legítima. Lo único que se exige es
+    // que no truene y que la respuesta sea honesta sobre su confianza.
+    expect(["full", "degraded_radius_8km", "degraded_long_distance", "no_coverage"]).toContain(
+      body.meta.engine.plan_confidence
+    );
+  }, 60_000);
 });

@@ -29,11 +29,11 @@
         "costoRealTexto": "$5 (tarifa plana del Metro -- confirmado por Emiliano 2026-08-28: 'hoy solo 5 por el metro')"
       },
       "resultadoMotorActual": {
-        "verificado": "2026-08-28 contra planRoute() real, Postgres local",
-        "confidence": "no_coverage",
-        "itinerariosEncontrados": 0,
+        "verificado": "2026-08-30 contra planRoute() real, Postgres local -- ver docs/handoff/03-algoritmo.md sección 12",
+        "confidence": "degraded_long_distance",
+        "itinerariosEncontrados": 1,
         "distanciaRectaOrigenDestinoM": 12846,
-        "diagnostico": "NO es un problema de radio de búsqueda -- San Pedro de los Pinos, El Rosario e Instituto del Petróleo caen dentro del radio de reintento (8000m) desde origen/destino respectivamente (verificado con ST_Distance real). Es agotamiento del presupuesto de búsqueda: expandedNodeCount llega a MAX_NODE_EXPANSIONS (1200) y elapsedMs a SEARCH_TIME_BUDGET_MS (2200) en AMBOS intentos (radio 5000 y 8000) sin terminar de explorar el camino real. Ningún caso probado hasta ahora en este proyecto (El Ángel/Zócalo, los 5 smoke de Ecobici) supera 4.5km -- este commute real son ~12.8km en línea recta, probablemente 15-18km por la ruta real del Metro. HALLAZGO GRAVE: un viaje que el usuario hace de verdad, con frecuencia, no se puede rutear hoy."
+        "diagnostico": "RESUELTO 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12): algoritmo-ruteo agregó un tier de búsqueda de distancia larga (heurística A* admisible + filtro de corredor elíptico + presupuesto de nodos/tiempo extendido, activado solo para distancia recta origen-destino > 6km). El motor ahora encuentra un itinerario real (66 min = 3974s, 2 transbordos, $18, 1 itinerario -- combinación real distinta de la rutaEsperada: camión local + circuito RTP + Metro L5 en vez de Metro L7->L6->L5, pero Pareto-válida) convergiendo de forma natural en 15,727 expansiones (truncatedByExpansionCap=false), en ~22-25s de tiempo de pared medido (6 corridas reales limpias: 21.8-24.9s, ver handoff sección 12). Limitación nueva, documentada, no oculta: esto incumple a propósito el presupuesto p95 < 3s del proyecto para esta clase de consulta -- confidence 'degraded_long_distance' (nunca 'full') refleja ese costo. No se pudo medir tipo 2 (desviación <15% contra el tiempo real de 4800s) de forma automática en esta pasada porque el itinerario encontrado usa una combinación de modos distinta a la que reportó Emiliano, no directamente comparable tramo a tramo -- queda para una siguiente pasada de qa-rutas (nota: 3974s vs 4800s reales = ~17% más rápido que el viaje real, en el lado optimista -- fuera del umbral de 15%, esperable porque el motor subestima esperas y no es la misma combinación de modos)."
       }
     },
     {
@@ -66,10 +66,10 @@
         "costoRealTexto": "$6 Metrobús + $9.50 camión RTP morado = $15.50 (confirmado por Emiliano 2026-08-28; no incluye costo de Ecobici si aplicó)"
       },
       "resultadoMotorActual": {
-        "verificado": "2026-08-28 contra planRoute() real, Postgres local",
-        "confidence": "no_coverage",
-        "itinerariosEncontrados": 0,
-        "diagnostico": "Mismo hallazgo que casa_escom_pico -- ver ese caso. expandedNodeCount y elapsedMs agotados en ambos intentos de radio."
+        "verificado": "2026-08-30 contra planRoute() real, Postgres local -- ver docs/handoff/03-algoritmo.md sección 12",
+        "confidence": "degraded_long_distance",
+        "itinerariosEncontrados": 6,
+        "diagnostico": "RESUELTO 2026-08-30 -- mismo tier de distancia larga que casa_escom_pico (ver ese caso). Este par (~13.5km) encontró 6 itinerarios Pareto-óptimos convergiendo de forma natural en 16,914 expansiones (truncatedByExpansionCap=false) en ~23.6s. NOTA: en una medición previa este caso truncaba en el tope de 16,000 del intento detenido anterior; algoritmo-ruteo subió MAX_NODE_EXPANSIONS_LONG_DISTANCE a 22,000 (2026-08-30, ver config.ts y handoff sección 12) precisamente para que este caso también convergiera de forma natural en vez de cortarse -- 'primero correcto, luego rápido'. No se comparó contra rutaEsperada (Ecobici + Metrobús + RTP) tramo a tramo en esta pasada."
       }
     },
     {

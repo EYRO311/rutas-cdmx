@@ -34,7 +34,7 @@
  * que sí necesitó un ajuste (ver comentario ahí). Ver
  * docs/handoff/03-algoritmo.md para la evidencia real de un caso así.
  */
-import { ParetoBag, primaryOrderKey } from "./labels.ts";
+import { ParetoBag } from "./labels.ts";
 import { relaxEdge, pruneNeighbors } from "./relax.ts";
 import { MinHeap } from "./heap.ts";
 import { WINDOW } from "./config.ts";
@@ -70,6 +70,28 @@ export interface DijkstraParams {
    */
   deadlineAt?: number;
   /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12):
+   * heurística ADMISIBLE de A* — cota INFERIOR del tiempo restante (en
+   * segundos) desde `stopId` hasta el destino. Si se pasa, la cola de
+   * prioridad se ordena por f = arrivalSecs + heuristicFn(stopId) en vez de
+   * solo por arrivalSecs, convirtiendo la búsqueda en A* dirigida al
+   * destino en vez de una expansión ciega en anillos concéntricos de tiempo.
+   *
+   * Correctitud (prueba estándar de A*): mientras `heuristicFn` sea
+   * admisible (h(s) <= tiempo real restante desde s), TODO label sobre
+   * cualquier itinerario Pareto-óptimo dentro de la franja de gracia tiene
+   * f <= T* + EARLY_STOP_SLACK_SECS, así que se explora antes del corte —
+   * A* encuentra EXACTAMENTE el mismo conjunto de rutas que el Dijkstra puro
+   * anterior, solo que expandiendo mucho menos grafo. Ver
+   * config.ts#ASTAR_ADMISSIBLE_SPEED_MPS para cómo se garantiza la
+   * admisibilidad. Es una heurística DISTINTA de `goalBiasFn`: aquella
+   * (agresiva, 6 m/s, puede no ser admisible) solo ordena la PODA de labels;
+   * esta (admisible) ordena la EXPANSIÓN. Default: sin ella, h=0 para todo
+   * stop, que reduce A* a Dijkstra puro (comportamiento anterior idéntico —
+   * por eso los tests sintéticos sin heurística no cambian).
+   */
+  heuristicFn?: (stopId: string) => number;
+  /**
    * Agregado 2026-08-22: tope de fan-out para aristas `walk` hacia una
    * estación Ecobici, por expansión (ver relax.ts#limitWalkFanout,
    * config.ts#MAX_WALK_TO_ECOBICI_EDGES_PER_EXPANSION). Parametrizado (en
@@ -80,6 +102,14 @@ export interface DijkstraParams {
    * `WINDOW.MAX_WALK_TO_ECOBICI_EDGES_PER_EXPANSION` si se omite.
    */
   maxWalkToEcobiciEdges?: number;
+  /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12).
+   * Reemplaza a `WINDOW.MAX_NODE_EXPANSIONS` SOLO si se pasa explícitamente
+   * — `index.ts` lo usa para el tier de distancia larga
+   * (`WINDOW.MAX_NODE_EXPANSIONS_LONG_DISTANCE`), dejando el tier normal
+   * (sin pasar este campo) exactamente como estaba antes de este cambio.
+   */
+  maxNodeExpansions?: number;
 }
 
 export interface DijkstraResult {
@@ -88,18 +118,38 @@ export interface DijkstraResult {
   dbQueryCount: number;
   /** true si se cortó la búsqueda por WINDOW.MAX_NODE_EXPANSIONS o por deadlineAt antes de agotar la cola — ver config.ts. */
   truncatedByExpansionCap: boolean;
+  /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 13):
+   * `true` SOLO cuando la búsqueda se cortó específicamente por alcanzar el
+   * tope de NODOS (`maxNodeExpansions`), no por el deadline de tiempo de
+   * pared. Es la distinción que necesita `index.ts` para el fallback denso:
+   * alcanzar el tope de nodos es un indicador de DENSIDAD/dificultad real del
+   * corredor (la búsqueda gastó todo su presupuesto de nodos y no llegó),
+   * independiente de la velocidad de la máquina; cortar por deadline de
+   * tiempo con pocos nodos expandidos es un indicador de LENTITUD (contención
+   * de Postgres, cold start) que NO debe disparar el reintento caro. Ver el
+   * comentario del fallback en index.ts para por qué esa distinción importa.
+   */
+  hitNodeCap: boolean;
 }
 
 export async function dijkstraMultiCriteria(params: DijkstraParams): Promise<DijkstraResult> {
   const { fetchNeighbors, origins, allowedStopIds, horizonEndSecs, weights, targetStopIds, goalBiasFn, deadlineAt } =
     params;
   const maxWalkToEcobiciEdges = params.maxWalkToEcobiciEdges ?? WINDOW.MAX_WALK_TO_ECOBICI_EDGES_PER_EXPANSION;
+  const maxNodeExpansions = params.maxNodeExpansions ?? WINDOW.MAX_NODE_EXPANSIONS;
+  // Heurística admisible de A* (ver DijkstraParams#heuristicFn). Default h=0
+  // => la cola queda ordenada por arrivalSecs puro, exactamente el Dijkstra
+  // anterior. fScore es la función de orden de la cola: f = g + h.
+  const heuristicFn = params.heuristicFn ?? (() => 0);
+  const fScore = (label: Label): number => label.arrivalSecs + heuristicFn(label.stopId);
 
   const bags = new Map<string, ParetoBag>();
-  const heap = new MinHeap<Label>(primaryOrderKey);
+  const heap = new MinHeap<Label>(fScore);
   let expandedNodeCount = 0;
   let dbQueryCount = 0;
   let truncatedByExpansionCap = false;
+  let hitNodeCap = false;
   let earliestTargetArrival: number | null = null;
 
   // scalarCost(label, weights, 0) se usa solo como heurística de ranking
@@ -130,8 +180,9 @@ export async function dijkstraMultiCriteria(params: DijkstraParams): Promise<Dij
   }
 
   while (heap.size > 0) {
-    if (expandedNodeCount >= WINDOW.MAX_NODE_EXPANSIONS || (deadlineAt !== undefined && performance.now() >= deadlineAt)) {
+    if (expandedNodeCount >= maxNodeExpansions || (deadlineAt !== undefined && performance.now() >= deadlineAt)) {
       truncatedByExpansionCap = true;
+      if (expandedNodeCount >= maxNodeExpansions) hitNodeCap = true;
       break;
     }
 
@@ -139,11 +190,17 @@ export async function dijkstraMultiCriteria(params: DijkstraParams): Promise<Dij
     if (!label) break;
 
     // Corte por destino (solo si se pasó targetStopIds): la cola procesa en
-    // orden ascendente estricto de arrivalSecs, así que en cuanto el
-    // siguiente label a expandir llega después de la franja de gracia
-    // posterior al primer arribo a un destino, NINGÚN label restante en la
-    // cola puede mejorar ningún destino — es seguro parar del todo.
-    if (earliestTargetArrival !== null && label.arrivalSecs > earliestTargetArrival + WINDOW.EARLY_STOP_SLACK_SECS) {
+    // orden ascendente estricto de f = arrivalSecs + h. Como h es admisible,
+    // f(label) es una cota INFERIOR del arribo al destino a través de este
+    // label; una vez que el siguiente label a expandir tiene f mayor que el
+    // primer arribo real a un destino más la franja de gracia, NINGÚN label
+    // restante en la cola puede llegar al destino dentro de esa franja — es
+    // seguro parar del todo. `earliestTargetArrival` se guarda como el arribo
+    // REAL (g), no f, porque es un arribo consumado (h=0 en el destino salvo
+    // la caminata de acceso residual, que solo hace el corte un pelo más
+    // conservador, nunca menos). Con h=0 (Dijkstra puro) esto es idéntico al
+    // corte exacto por arrivalSecs anterior.
+    if (earliestTargetArrival !== null && fScore(label) > earliestTargetArrival + WINDOW.EARLY_STOP_SLACK_SECS) {
       break;
     }
 
@@ -180,5 +237,5 @@ export async function dijkstraMultiCriteria(params: DijkstraParams): Promise<Dij
     }
   }
 
-  return { bags, expandedNodeCount, dbQueryCount, truncatedByExpansionCap };
+  return { bags, expandedNodeCount, dbQueryCount, truncatedByExpansionCap, hitNodeCap };
 }

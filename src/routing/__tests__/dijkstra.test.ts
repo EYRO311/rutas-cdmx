@@ -108,6 +108,94 @@ describe("dijkstraMultiCriteria — grafo sintético", () => {
     expect(bags.has("S8")).toBe(false);
     expect(bags.has("S1")).toBe(true);
   });
+
+  it("maxNodeExpansions (agregado 2026-08-30, tier de distancia larga) reemplaza a WINDOW.MAX_NODE_EXPANSIONS cuando se pasa explícitamente", async () => {
+    // Misma cadena de 8 saltos que la prueba anterior -- cada salto es una
+    // expansión real. Con un tope explícito de 2, la búsqueda debe cortar
+    // MUY antes de agotar la cadena, sin importar que
+    // WINDOW.MAX_NODE_EXPANSIONS (1200) sea mucho mayor.
+    const chainEdges = [];
+    for (let i = 0; i < 8; i++) {
+      chainEdges.push({
+        from: `S${i}`,
+        edge_type: "ride" as const,
+        to_node_id: `S${i + 1}`,
+        trip_id: `TRIP_${i}`,
+        depart_secs: 1000 + i * 100,
+        arrive_secs: 1000 + (i + 1) * 100,
+      });
+    }
+    const fetchNeighbors = makeSyntheticFetcher(chainEdges);
+    const weights = defaultCostWeights();
+    const origin: Label = { ...ORIGIN_LABEL, stopId: "S0" };
+    const allowed = new Set(Array.from({ length: 9 }, (_, i) => `S${i}`));
+
+    const limited = await dijkstraMultiCriteria({
+      fetchNeighbors,
+      origins: [origin],
+      allowedStopIds: allowed,
+      horizonEndSecs: 10_000,
+      weights,
+      maxNodeExpansions: 2,
+    });
+    expect(limited.expandedNodeCount).toBe(2);
+    expect(limited.truncatedByExpansionCap).toBe(true);
+    // Agregado 2026-08-30 (sección 13): cortó por el tope de NODOS, así que
+    // hitNodeCap debe ser true (lo que distingue "denso" de "lento").
+    expect(limited.hitNodeCap).toBe(true);
+
+    // Sin pasar el campo, cae al default de WINDOW -- comportamiento
+    // idéntico al de antes de este cambio (la cadena completa de 8 saltos
+    // cabe sobradamente dentro de 1200).
+    const unlimited = await dijkstraMultiCriteria({
+      fetchNeighbors,
+      origins: [origin],
+      allowedStopIds: allowed,
+      horizonEndSecs: 10_000,
+      weights,
+    });
+    expect(unlimited.truncatedByExpansionCap).toBe(false);
+    expect(unlimited.expandedNodeCount).toBeLessThan(WINDOW.MAX_NODE_EXPANSIONS);
+    // Convergió naturalmente (agotó la cola), no tocó ningún tope: hitNodeCap false.
+    expect(unlimited.hitNodeCap).toBe(false);
+  });
+
+  it("hitNodeCap distingue corte por TIEMPO (deadline) de corte por NODOS (agregado 2026-08-30, sección 13)", async () => {
+    // Misma cadena; deadlineAt en el pasado fuerza un corte por TIEMPO en el
+    // primer chequeo del bucle, ANTES de agotar el tope de nodos. En ese caso
+    // truncatedByExpansionCap es true (se cortó antes de vaciar la cola) pero
+    // hitNodeCap debe ser FALSE: el corte fue por reloj, no por densidad. Es
+    // exactamente la distinción que index.ts documenta como observabilidad
+    // (el fallback denso dispara con truncatedByExpansionCap, no con hitNodeCap
+    // — ver el comentario largo en index.ts).
+    const chainEdges = [];
+    for (let i = 0; i < 8; i++) {
+      chainEdges.push({
+        from: `S${i}`,
+        edge_type: "ride" as const,
+        to_node_id: `S${i + 1}`,
+        trip_id: `TRIP_${i}`,
+        depart_secs: 1000 + i * 100,
+        arrive_secs: 1000 + (i + 1) * 100,
+      });
+    }
+    const fetchNeighbors = makeSyntheticFetcher(chainEdges);
+    const weights = defaultCostWeights();
+    const origin: Label = { ...ORIGIN_LABEL, stopId: "S0" };
+    const allowed = new Set(Array.from({ length: 9 }, (_, i) => `S${i}`));
+
+    const timedOut = await dijkstraMultiCriteria({
+      fetchNeighbors,
+      origins: [origin],
+      allowedStopIds: allowed,
+      horizonEndSecs: 10_000,
+      weights,
+      deadlineAt: performance.now() - 1, // ya vencido
+    });
+    expect(timedOut.truncatedByExpansionCap).toBe(true);
+    expect(timedOut.hitNodeCap).toBe(false);
+    expect(timedOut.expandedNodeCount).toBeLessThan(WINDOW.MAX_NODE_EXPANSIONS);
+  });
 });
 
 describe("dijkstraMultiCriteria — Postgres real", () => {

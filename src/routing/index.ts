@@ -16,7 +16,13 @@ import { loadCostWeights } from "./cost.ts";
 import { makeNeighborFetcher } from "./graph-client.ts";
 import { buildItinerary } from "./itinerary.ts";
 import { WINDOW } from "./config.ts";
-import { buildOriginLabels, haversineMeters, resolveAccessStops, resolveSearchUniverse } from "./window.ts";
+import {
+  applyCorridorFilter,
+  buildOriginLabels,
+  haversineMeters,
+  resolveAccessStops,
+  resolveSearchUniverse,
+} from "./window.ts";
 import type { CostWeights, Itinerary, Label, PlanConfidence, PlanRequest, PlanResult } from "./types.ts";
 import type { CandidateStop } from "./types.ts";
 import { ParetoBag } from "./labels.ts";
@@ -30,6 +36,21 @@ interface AttemptOutcome {
   expandedNodeCount: number;
   dbQueryCount: number;
   truncatedByExpansionCap: boolean;
+  /** Ver dijkstra.ts#DijkstraResult.hitNodeCap. Agregado 2026-08-30 (sección 13). */
+  hitNodeCap: boolean;
+}
+
+interface AttemptOptions {
+  /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12,
+   * window.ts#applyCorridorFilter). Si se pasa, restringe
+   * `universe.allowedStopIds` a las paradas dentro de la elipse
+   * origen-destino con este factor, ANTES de correr el motor de búsqueda —
+   * solo lo usa el tier de distancia larga de `planRoute`.
+   */
+  corridorEllipseFactor?: number;
+  /** Ver dijkstra.ts#maxNodeExpansions/raptor.ts#maxNodeExpansions. */
+  maxNodeExpansions?: number;
 }
 
 async function attemptPlan(
@@ -38,7 +59,8 @@ async function attemptPlan(
   weights: CostWeights,
   radiusMeters: number,
   engine: Engine,
-  deadlineAt: number
+  deadlineAt: number,
+  options: AttemptOptions = {}
 ): Promise<AttemptOutcome> {
   // Solo cuenta las queries de resolución de candidatos (universo + acceso);
   // las queries de expansión del algoritmo las cuenta dijkstra.ts/raptor.ts
@@ -70,6 +92,7 @@ async function attemptPlan(
       expandedNodeCount: 0,
       dbQueryCount,
       truncatedByExpansionCap: false,
+      hitNodeCap: false,
     };
   }
 
@@ -77,6 +100,16 @@ async function attemptPlan(
   const horizonEndSecs = request.departSecs + (request.horizonSecs ?? WINDOW.TIME_HORIZON_SECS_DEFAULT);
   const fetchNeighbors = makeNeighborFetcher(pool, request.serviceDate);
   const targetStopIds = new Set(destinationAccessStops.map((s) => s.stopId));
+
+  // Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12): filtro
+  // de corredor, SOLO aplicado por el tier de distancia larga de planRoute()
+  // (options.corridorEllipseFactor). El tier normal (corto/mediano) sigue
+  // usando universe.allowedStopIds tal cual, sin ningún cambio de
+  // comportamiento respecto de antes de este entregable.
+  const allowedStopIds =
+    options.corridorEllipseFactor !== undefined
+      ? applyCorridorFilter(universe, request.origin, request.destination, options.corridorEllipseFactor)
+      : universe.allowedStopIds;
 
   // Heurística de orientación (ver config.ts#HEURISTIC_SPEED_MPS): distancia
   // en línea recta de cada parada del universo de búsqueda al punto de
@@ -122,14 +155,36 @@ async function attemptPlan(
     return haversineMeters(coords, request.destination) / WINDOW.HEURISTIC_SPEED_MPS;
   };
 
+  // Heurística ADMISIBLE de A* (agregado 2026-08-30, ver
+  // docs/handoff/03-algoritmo.md sección 12). Distinta de goalBiasFn: esta
+  // ordena la EXPANSIÓN (la cola de prioridad de dijkstra.ts), aquella solo
+  // la PODA. Debe ser una cota INFERIOR del tiempo restante para no perder
+  // rutas Pareto-óptimas (config.ts#ASTAR_ADMISSIBLE_SPEED_MPS explica por
+  // qué 15 m/s es una cota superior segura de la velocidad efectiva, lo que
+  // hace del tiempo estimado una cota inferior admisible). Para nodos sin
+  // coordenadas conocidas baratas (estaciones Ecobici — no se pagan queries
+  // extra por su ubicación, misma decisión que goalBiasFn) se devuelve 0, que
+  // siempre es una cota inferior válida del tiempo restante (admisible): a lo
+  // sumo hace que A* explore esos nodos un poco más ansiosamente, nunca que
+  // pierda una ruta.
+  const heuristicFn = (stopId: string): number => {
+    const coords = stopCoords.get(stopId);
+    if (!coords) return 0;
+    return haversineMeters(coords, request.destination) / WINDOW.ASTAR_ADMISSIBLE_SPEED_MPS;
+  };
+
   const searchParams = {
     fetchNeighbors,
     origins,
-    allowedStopIds: universe.allowedStopIds,
+    allowedStopIds,
     horizonEndSecs,
     weights,
     targetStopIds,
     goalBiasFn,
+    // A* admisible: solo lo consume dijkstra.ts (motor por defecto). raptor.ts
+    // lo acepta e ignora (es round-based, no tiene una cola de prioridad
+    // global que ordenar) — ver docs/handoff/03-algoritmo.md sección 12.
+    heuristicFn,
     deadlineAt,
     // Agregado 2026-08-22: RAPTOR recibe 0 aquí a propósito — ver
     // raptor.ts#maxWalkToEcobiciEdges para la evidencia real completa.
@@ -140,6 +195,9 @@ async function attemptPlan(
     // caso de uso normal — es una limitación explícita de usar `raptor`
     // explícitamente con tramos Ecobici, no del motor por defecto.
     maxWalkToEcobiciEdges: engine === "raptor" ? 0 : undefined,
+    // Agregado 2026-08-30: ver DijkstraParams#maxNodeExpansions. undefined
+    // (tier normal) cae al default WINDOW.MAX_NODE_EXPANSIONS de siempre.
+    maxNodeExpansions: options.maxNodeExpansions,
   };
 
   const result =
@@ -154,6 +212,7 @@ async function attemptPlan(
     expandedNodeCount: result.expandedNodeCount,
     dbQueryCount: dbQueryCount + result.dbQueryCount,
     truncatedByExpansionCap: result.truncatedByExpansionCap,
+    hitNodeCap: result.hitNodeCap,
   };
 }
 
@@ -214,8 +273,27 @@ export async function planRoute(
   engine: Engine = "dijkstra"
 ): Promise<PlanResult> {
   const startedAt = performance.now();
-  const overallDeadline = startedAt + WINDOW.SEARCH_TIME_BUDGET_MS;
   const weights = await loadCostWeights(pool, request.userId);
+
+  // Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12,
+  // seguimiento del hallazgo crítico de qa-rutas — commute largo real que
+  // daba no_coverage). Viajes cuya distancia recta origen-destino supera
+  // WINDOW.LONG_DISTANCE_THRESHOLD_METERS usan un tier de búsqueda distinto
+  // (corredor + presupuesto extendido) en vez del tier normal de abajo —
+  // ver attemptLongDistancePlan. El tier normal (este archivo, resto de la
+  // función) queda EXACTAMENTE igual que antes de este cambio: ningún caso
+  // corto/mediano ya medido (El Ángel↔Zócalo, Chapultepec↔Merced, los 5
+  // smoke de Ecobici) cambia de comportamiento ni de presupuesto.
+  const odMeters = haversineMeters(request.origin, request.destination);
+  if (odMeters > WINDOW.LONG_DISTANCE_THRESHOLD_METERS) {
+    return attemptLongDistancePlan(pool, request, weights, engine, startedAt, {
+      successConfidence: "degraded_long_distance",
+      maxNodeExpansions: WINDOW.MAX_NODE_EXPANSIONS_LONG_DISTANCE,
+      timeBudgetMs: WINDOW.SEARCH_TIME_BUDGET_MS_LONG_DISTANCE,
+    });
+  }
+
+  const overallDeadline = startedAt + WINDOW.SEARCH_TIME_BUDGET_MS;
 
   let radiusMeters: number = WINDOW.SEARCH_RADIUS_METERS_DEFAULT;
   let confidence: PlanConfidence = "full";
@@ -231,9 +309,112 @@ export async function planRoute(
       expandedNodeCount: outcome.expandedNodeCount + retryOutcome.expandedNodeCount,
       dbQueryCount: outcome.dbQueryCount + retryOutcome.dbQueryCount,
       truncatedByExpansionCap: outcome.truncatedByExpansionCap || retryOutcome.truncatedByExpansionCap,
+      hitNodeCap: outcome.hitNodeCap || retryOutcome.hitNodeCap,
     };
     confidence = retryOutcome.itineraries.length > 0 ? "degraded_radius_8km" : "no_coverage";
   }
+
+  // Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 13 —
+  // hallazgo del orquestador: un viaje CORTO ~4.3km, Nápoles/Del Valle→Xoco,
+  // bien dentro del tier normal, daba no_coverage por agotar el presupuesto).
+  // Fallback adaptativo por DENSIDAD/DIFICULTAD, no por distancia: el tier
+  // normal agotó su presupuesto (`truncatedByExpansionCap`) sin alcanzar el
+  // destino, pese a que sí había paradas de acceso en ambos extremos. Medido
+  // (sección 13): ni la distancia recta (4.3km < 6km) ni la densidad de
+  // paradas candidatas (2,431, MENOS que El Ángel↔Zócalo, que sí converge)
+  // predicen esta dificultad — el único indicador es que el tier normal se
+  // quedó sin presupuesto sin cobertura. Se reintenta con el filtro de
+  // corredor + un presupuesto ACOTADO propio (MAX_NODE_EXPANSIONS_DENSE_FALLBACK
+  // / SEARCH_TIME_BUDGET_MS_DENSE_FALLBACK, ~12s, NO los 60s del tier largo),
+  // que reduce las expansiones de este corredor de ~9,718 a ~1,440 y sí
+  // encuentra ruta. Confianza propia (`degraded_dense`), no
+  // `degraded_long_distance`: sería engañoso etiquetar un viaje de 4.3km como
+  // "larga distancia".
+  //
+  // Se dispara con `truncatedByExpansionCap` (cortó por tope de NODOS O por
+  // deadline de TIEMPO), NO con `hitNodeCap` a secas. Se PROBÓ disparar solo
+  // con `hitNodeCap` (tope de nodos, para no reintentar cuando la lentitud es
+  // contención pasajera) y se DESCARTÓ con evidencia (sección 13): qué límite
+  // se alcanza primero (nodos vs tiempo) depende de la latencia por-query,
+  // que en producción (Supabase sobre red, más lenta que Postgres local) hace
+  // que el deadline de TIEMPO se alcance ANTES que el tope de nodos incluso
+  // en un caso denso legítimo — con `hitNodeCap` el fallback casi nunca se
+  // dispararía justo donde se necesita. `hitNodeCap` se conserva en el
+  // resultado solo como observabilidad. Un no_coverage por FALTA de paradas
+  // de acceso (candidate*Stops = 0) retorna temprano con
+  // truncatedByExpansionCap=false y NO gasta este reintento; uno por agotar
+  // el universo alcanzable sin truncar tampoco. Costo real y su interacción
+  // con la contención de test documentados en la sección 13.
+  if (outcome.itineraries.length === 0 && outcome.truncatedByExpansionCap) {
+    return attemptLongDistancePlan(pool, request, weights, engine, startedAt, {
+      successConfidence: "degraded_dense",
+      maxNodeExpansions: WINDOW.MAX_NODE_EXPANSIONS_DENSE_FALLBACK,
+      timeBudgetMs: WINDOW.SEARCH_TIME_BUDGET_MS_DENSE_FALLBACK,
+    });
+  }
+
+  return {
+    confidence,
+    itineraries: outcome.itineraries,
+    meta: {
+      searchRadiusMeters: radiusMeters,
+      candidateOriginStops: outcome.candidateOriginStops,
+      candidateDestinationStops: outcome.candidateDestinationStops,
+      expandedNodeCount: outcome.expandedNodeCount,
+      dbQueryCount: outcome.dbQueryCount,
+      elapsedMs: performance.now() - startedAt,
+      truncatedByExpansionCap: outcome.truncatedByExpansionCap,
+    },
+  };
+}
+
+/**
+ * Tier de distancia larga (ver docs/handoff/03-algoritmo.md sección 12).
+ * Diferencias deliberadas respecto del tier normal (`planRoute` arriba):
+ *
+ * 1. Va DIRECTO a `SEARCH_RADIUS_METERS_RETRY` (8km) — evidencia real
+ *    (docs/handoff/08-qa.md sección 1.1): un viaje >6km casi con certeza
+ *    necesita las paradas de transbordo que solo aparecen a 8km, así que
+ *    intentar primero a 5km solo gastaría presupuesto en un intento que va
+ *    a fallar de todos modos. Nunca excede 8km — sigue siendo el tope duro
+ *    del brief ("no más").
+ * 2. Aplica el filtro de corredor (`WINDOW.CORRIDOR_ELLIPSE_FACTOR`) —
+ *    reduce el universo de paradas candidatas ~55% en el caso real medido.
+ * 3. Usa el presupuesto extendido (`MAX_NODE_EXPANSIONS_LONG_DISTANCE`,
+ *    `SEARCH_TIME_BUDGET_MS_LONG_DISTANCE`) — deliberadamente incumple
+ *    p95 < 3s para esta clase de consulta, ver justificación en config.ts.
+ * 4. Si encuentra un itinerario, la confianza es `successConfidence` (nunca
+ *    `"full"`) — refleja el costo real de obtenerlo, no su validez. Vale
+ *    `"degraded_long_distance"` cuando se llega aquí por distancia (>6km) o
+ *    `"degraded_dense"` cuando se llega como FALLBACK adaptativo de un tier
+ *    normal que agotó su presupuesto sin cobertura (viaje corto en corredor
+ *    denso — ver docs/handoff/03-algoritmo.md sección 13). La maquinaria
+ *    (corredor + presupuesto extendido) es idéntica en ambos casos; solo
+ *    cambia la etiqueta de confianza para no llamar "larga distancia" a un
+ *    viaje que no lo es.
+ */
+async function attemptLongDistancePlan(
+  pool: Pool,
+  request: PlanRequest,
+  weights: CostWeights,
+  engine: Engine,
+  startedAt: number,
+  opts: {
+    successConfidence: "degraded_long_distance" | "degraded_dense";
+    maxNodeExpansions: number;
+    timeBudgetMs: number;
+  }
+): Promise<PlanResult> {
+  const { successConfidence, maxNodeExpansions, timeBudgetMs } = opts;
+  const radiusMeters = WINDOW.SEARCH_RADIUS_METERS_RETRY;
+  const deadlineAt = startedAt + timeBudgetMs;
+
+  const outcome = await attemptPlan(pool, request, weights, radiusMeters, engine, deadlineAt, {
+    corridorEllipseFactor: WINDOW.CORRIDOR_ELLIPSE_FACTOR,
+    maxNodeExpansions,
+  });
+
+  const confidence: PlanConfidence = outcome.itineraries.length > 0 ? successConfidence : "no_coverage";
 
   return {
     confidence,

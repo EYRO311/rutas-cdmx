@@ -106,6 +106,48 @@ describe("raptor — grafo sintético, semántica de rondas", () => {
     expect(bags.has("S6")).toBe(true);
     expect(bags.has("S8")).toBe(false);
   });
+
+  it("maxNodeExpansions (agregado 2026-08-30, tier de distancia larga) reemplaza a WINDOW.MAX_NODE_EXPANSIONS cuando se pasa explícitamente", async () => {
+    const chainEdges = [];
+    for (let i = 0; i < 8; i++) {
+      chainEdges.push({
+        from: `S${i}`,
+        edge_type: "ride" as const,
+        to_node_id: `S${i + 1}`,
+        trip_id: `TRIP_${i}`,
+        depart_secs: 1000 + i * 100,
+        arrive_secs: 1000 + (i + 1) * 100,
+      });
+    }
+    const fetchNeighbors = makeSyntheticFetcher(chainEdges);
+    const weights = { ...defaultCostWeights(), maxTransfers: 6 };
+    const origin: Label = { ...ORIGIN_LABEL, stopId: "S0" };
+    const allowed = new Set(Array.from({ length: 9 }, (_, i) => `S${i}`));
+
+    const limited = await raptor({
+      fetchNeighbors,
+      origins: [origin],
+      allowedStopIds: allowed,
+      horizonEndSecs: 10_000,
+      weights,
+      maxRounds: 100,
+      maxNodeExpansions: 1,
+    });
+    expect(limited.truncatedByExpansionCap).toBe(true);
+    expect(limited.expandedNodeCount).toBeLessThanOrEqual(1);
+
+    // Sin pasar el campo, cae al default de WINDOW -- comportamiento
+    // idéntico al de antes de este cambio.
+    const unlimited = await raptor({
+      fetchNeighbors,
+      origins: [origin],
+      allowedStopIds: allowed,
+      horizonEndSecs: 10_000,
+      weights,
+      maxRounds: 100,
+    });
+    expect(unlimited.truncatedByExpansionCap).toBe(false);
+  });
 });
 
 // Agregado 2026-08-22 (entregable de tramos en Ecobici): cadena

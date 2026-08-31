@@ -93,6 +93,15 @@ export interface RaptorParams {
    * cuando MAX_FRONTIER_SIZE fuerza a elegir).
    */
   goalBiasFn?: (stopId: string) => number;
+  /**
+   * Aceptado e IGNORADO a propósito (agregado 2026-08-30). La heurística
+   * admisible de A* (ver dijkstra.ts#heuristicFn) ordena una cola de
+   * prioridad global; RAPTOR es round-based y no tiene esa cola, así que no
+   * hay dónde aplicarla. Se declara aquí solo para que `index.ts` pueda pasar
+   * el MISMO objeto de parámetros a ambos motores sin que TypeScript se queje
+   * de una propiedad excedente. Ver docs/handoff/03-algoritmo.md sección 12.
+   */
+  heuristicFn?: (stopId: string) => number;
   /** Ver dijkstra.ts#deadlineAt — mismo mecanismo, salvaguarda de tiempo de pared real. */
   deadlineAt?: number;
   /**
@@ -111,6 +120,8 @@ export interface RaptorParams {
    * `planRoute` la invoca en producción, no la capacidad del algoritmo.
    */
   maxWalkToEcobiciEdges?: number;
+  /** Ver dijkstra.ts#maxNodeExpansions — mismo parámetro, mismo default si se omite. */
+  maxNodeExpansions?: number;
 }
 
 export interface RaptorResult {
@@ -120,6 +131,8 @@ export interface RaptorResult {
   roundsUsed: number;
   /** true si se cortó la búsqueda por WINDOW.MAX_NODE_EXPANSIONS o por deadlineAt antes de agotar las rondas — ver config.ts. */
   truncatedByExpansionCap: boolean;
+  /** Ver dijkstra.ts#DijkstraResult.hitNodeCap — misma semántica (tope de NODOS, no de tiempo). Agregado 2026-08-30. */
+  hitNodeCap: boolean;
 }
 
 export async function raptor(params: RaptorParams): Promise<RaptorResult> {
@@ -127,6 +140,7 @@ export async function raptor(params: RaptorParams): Promise<RaptorResult> {
     params;
   const maxRounds = Math.min(params.maxRounds ?? WINDOW.MAX_ROUNDS, WINDOW.MAX_ROUNDS);
   const maxWalkToEcobiciEdges = params.maxWalkToEcobiciEdges ?? WINDOW.MAX_WALK_TO_ECOBICI_EDGES_PER_EXPANSION;
+  const maxNodeExpansions = params.maxNodeExpansions ?? WINDOW.MAX_NODE_EXPANSIONS;
 
   const bags = new Map<string, ParetoBag>();
   const bagFor = (stopId: string): ParetoBag => {
@@ -143,7 +157,7 @@ export async function raptor(params: RaptorParams): Promise<RaptorResult> {
   let truncatedByExpansionCap = false;
 
   const budgetExceeded = (): boolean =>
-    expandedNodeCount >= WINDOW.MAX_NODE_EXPANSIONS || (deadlineAt !== undefined && performance.now() >= deadlineAt);
+    expandedNodeCount >= maxNodeExpansions || (deadlineAt !== undefined && performance.now() >= deadlineAt);
 
   // Ver dijkstra.ts: mismo uso de scalarCost(..., 0) como heurística de
   // ranking interno para trimToSize, no como el costo final mostrado al
@@ -320,5 +334,12 @@ export async function raptor(params: RaptorParams): Promise<RaptorResult> {
     }
   }
 
-  return { bags, expandedNodeCount, dbQueryCount, roundsUsed, truncatedByExpansionCap };
+  // Ver dijkstra.ts: hitNodeCap distingue "se agotó el tope de NODOS"
+  // (densidad/dificultad real) de "se agotó el tope de TIEMPO" (lentitud /
+  // contención). Como expandedNodeCount solo crece y maxNodeExpansions es
+  // fijo, si la búsqueda truncó y llegó al tope de nodos, expandedNodeCount
+  // quedó >= maxNodeExpansions; si truncó solo por deadline de tiempo, quedó
+  // por debajo.
+  const hitNodeCap = truncatedByExpansionCap && expandedNodeCount >= maxNodeExpansions;
+  return { bags, expandedNodeCount, dbQueryCount, roundsUsed, truncatedByExpansionCap, hitNodeCap };
 }

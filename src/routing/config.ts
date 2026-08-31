@@ -144,6 +144,43 @@ export const WINDOW = {
    */
   HEURISTIC_SPEED_MPS: 6,
   /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md, sección 12 —
+   * hallazgo crítico de `qa-rutas`, commute largo real que daba `no_coverage`).
+   * Velocidad usada por la heurística ADMISIBLE de A* que ahora ordena la
+   * cola de prioridad de dijkstra.ts (`heuristicFn` en index.ts), a
+   * diferencia de HEURISTIC_SPEED_MPS que solo ordena la PODA (qué labels
+   * conservar), no la EXPANSIÓN. Son dos usos distintos con requisitos
+   * distintos:
+   *
+   * - Poda (HEURISTIC_SPEED_MPS = 6 m/s): puede ser agresiva/no admisible —
+   *   solo decide qué labels tirar cuando una bolsa/frontera se desborda, no
+   *   afecta la optimalidad del resultado que sí se explora.
+   * - Ordenamiento A* (esta constante): para que A* preserve EXACTAMENTE el
+   *   mismo conjunto de rutas que el Dijkstra puro anterior (regla dura del
+   *   proyecto: "primero correcto"), la heurística h(stop) = distancia en
+   *   línea recta al destino / velocidad DEBE ser admisible = nunca
+   *   sobreestimar el tiempo restante real. Como h estima TIEMPO (el criterio
+   *   primario de la cola es arrivalSecs), subestimar tiempo = SOBREestimar
+   *   velocidad: hay que dividir entre una COTA SUPERIOR de la velocidad
+   *   efectiva en línea recta de CUALQUIER modo. El Metro de CDMX promedia
+   *   ~36 km/h comercial (con paradas); en tramos rectos entre estaciones
+   *   distantes su velocidad efectiva en línea recta puede acercarse a
+   *   ~40-45 km/h, pero door-to-door (con esperas, transbordos y caminata de
+   *   acceso, que solo SUMAN tiempo y por tanto solo ayudan a la
+   *   admisibilidad) nunca la supera. 15 m/s (54 km/h) es una cota superior
+   *   segura con margen: ningún tramo real de transporte de CDMX cierra
+   *   distancia en línea recta más rápido que eso. Medido (ver handoff):
+   *   con esta cota, el commute largo real (casa -> ESCOM, ~12.8km) pasa de
+   *   `no_coverage` a encontrar ruta dentro del presupuesto, y El Ángel ->
+   *   Zócalo sigue devolviendo la misma ruta. Bajar la velocidad daría una
+   *   heurística más fuerte (más poda direccional) pero arriesgaría perder
+   *   la ruta óptima (inadmisible) — no se hizo, por la regla dura de
+   *   correctitud. Para nodos sin coordenadas conocidas baratas (estaciones
+   *   Ecobici, ver index.ts) la heurística cae a 0, que siempre es una cota
+   *   inferior válida (admisible) del tiempo restante.
+   */
+  ASTAR_ADMISSIBLE_SPEED_MPS: 15,
+  /**
    * Presupuesto de tiempo de PARED (no CPU) para toda la búsqueda dentro de
    * una invocación de `planRoute`, incluyendo el reintento a 8km si hace
    * falta — ver index.ts. MAX_NODE_EXPANSIONS acota por CANTIDAD de
@@ -251,6 +288,170 @@ export const WINDOW = {
   MIN_BIKES_AVAILABLE: 1,
   /** Mismo razonamiento que MIN_BIKES_AVAILABLE, para docks libres en la estación de DESTINO. */
   MIN_DOCKS_AVAILABLE: 1,
+  /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 12 —
+   * seguimiento del hallazgo crítico de `qa-rutas`, commute largo real que
+   * daba `no_coverage`). Distancia recta origen-destino, en metros, a
+   * partir de la cual `planRoute` cambia a un TIER de búsqueda distinto
+   * (corredor + presupuesto extendido, ver `CORRIDOR_ELLIPSE_FACTOR`,
+   * `MAX_NODE_EXPANSIONS_LONG_DISTANCE`, `SEARCH_TIME_BUDGET_MS_LONG_DISTANCE`
+   * abajo) en vez del tier normal (dos burbujas de 5/8km, presupuesto de
+   * 1200 nodos/2200ms).
+   *
+   * 6,000m se eligió con evidencia real, no a ojo: el caso más largo
+   * probado ANTES de este hallazgo (Chapultepec↔Merced, sección 6 del
+   * handoff) mide ~5.3km y sí converge dentro del tier normal — 6km deja
+   * margen sobre ese caso para no desviar nada que ya funciona bien hacia
+   * el tier extendido (más lento) sin necesidad. El caso que sí necesita el
+   * tier extendido (casa→ESCOM) mide ~12.8km, muy por encima de este corte.
+   */
+  LONG_DISTANCE_THRESHOLD_METERS: 6_000,
+  /**
+   * Agregado 2026-08-30. Filtro de corredor (candidato (c) de
+   * docs/handoff/08-qa.md sección 1.2): en vez de aceptar TODA parada
+   * dentro de las dos burbujas de radio fijo (origen y destino
+   * independientes), se descarta cualquier parada cuyo "desvío" real
+   * (distancia recta a origen + distancia recta a destino) supere
+   * `CORRIDOR_ELLIPSE_FACTOR` veces la distancia recta origen-destino — una
+   * elipse con los dos puntos como focos. Sin este filtro, medido contra
+   * Postgres real (docs/handoff/03-algoritmo.md sección 12): el universo de
+   * paradas candidatas para casa→ESCOM (radio 8km) es de **7,002 paradas**
+   * (re-medido 2026-08-30, coincide con la medición previa); aplicar este
+   * filtro a factor 1.3 lo reduce a **3,820 paradas** (~45% menos)
+   * manteniendo alcanzable un itinerario Pareto-óptimo real de 2 transbordos
+   * (el motor devuelve camión local + circuito RTP + Metro L5, no la
+   * combinación L7→L6→L5 que reportó el usuario, pero igual de válida — ver
+   * handoff sección 12). NOTA de honestidad: una medición previa (intento
+   * detenido, sin handoff) anotó "3,143 (55% menos)" para este mismo filtro;
+   * ese número NO se reprodujo a factor 1.3 en la re-medición limpia de
+   * 2026-08-30 (3,143 corresponde más bien a factor ~1.2: medido, 1.2 →
+   * 3,054 paradas). Se conserva 1.3 como valor de envío (ver calibración
+   * abajo), con el número real re-medido.
+   *
+   * Calibración real del factor (ver handoff sección 12): se eligió **1.3**,
+   * no el mínimo empírico (~1.2), a propósito: 1.2 está cerca del punto de
+   * ruptura para ESTE caso concreto — usarlo como default general
+   * arriesgaría romper la optimalidad en otra geometría de ciudad no probada
+   * aquí (ej. un commute con un desvío real ligeramente mayor). 1.3 da
+   * margen de seguridad real (mismo principio de "cota con margen" que ya usa
+   * `ASTAR_ADMISSIBLE_SPEED_MPS`), a cambio de más paradas candidatas —
+   * aceptable porque el tier extendido ya no compite por el presupuesto de
+   * 2,200ms del tier normal (ver `SEARCH_TIME_BUDGET_MS_LONG_DISTANCE`). Con
+   * factor 1.3, casa→ESCOM converge de forma natural en 15,727 expansiones
+   * (re-medido, ver MAX_NODE_EXPANSIONS_LONG_DISTANCE).
+   *
+   * Aplicado SOLO cuando la distancia recta origen-destino supera
+   * `LONG_DISTANCE_THRESHOLD_METERS` — en viajes cortos las dos burbujas de
+   * radio fijo casi se solapan por completo (el "desvío" de cualquier
+   * parada candidata ya es cercano a 1x la distancia OD), así que el
+   * filtro no aportaría nada y solo agregaría trabajo de cómputo puro sin
+   * beneficio medible.
+   */
+  CORRIDOR_ELLIPSE_FACTOR: 1.3,
+  /**
+   * Agregado 2026-08-30. Tope de nodos expandidos para el TIER de distancia
+   * larga (ver `LONG_DISTANCE_THRESHOLD_METERS`) — reemplaza a
+   * `MAX_NODE_EXPANSIONS` (1,200) SOLO para esas consultas, nunca para el
+   * tier normal (que sigue exactamente igual que antes de este cambio, sin
+   * ninguna regresión de latencia para El Ángel↔Zócalo ni el resto de
+   * casos ya medidos).
+   *
+   * IMPORTANTE — esto NO es el candidato (a) de docs/handoff/08-qa.md
+   * sección 1.2 ("presupuesto escalado por distancia") que esa
+   * investigación descartó: aquella medición fue SIN heurística admisible
+   * de A* ni filtro de corredor, y encontró que hacían falta 33,602
+   * expansiones/45.6s — inaceptable incluso como tier separado. Con AMBAS
+   * optimizaciones activas (heurística A* + corredor 1.3, ver arriba), los
+   * dos casos reales largos convergen de forma natural (corte por
+   * agotamiento de cola, NO por este tope). Re-medido 2026-08-30 con proceso
+   * nuevo por corrida (bench/run-one.ts): casa→ESCOM converge en **15,727
+   * expansiones** (5/5 corridas, estable) y el segundo caso largo real
+   * (casa→ESCOM entrada trasera, ecobici_primer_tramo_personal) en **16,914
+   * expansiones** — ambos muy por encima del tope normal de 1,200 pero por
+   * debajo de este tope. NOTA de honestidad: una medición previa (intento
+   * detenido, sin handoff) había anotado 13,028 expansiones y fijado este
+   * tope en 16,000; ese número NO se reprodujo en la re-medición limpia de
+   * 2026-08-30 (el segundo caso truncaba en 16,000 exacto, perdiendo
+   * completitud Pareto). Subido a **22,000** para dar ~30% de margen real
+   * sobre la convergencia natural más alta observada (16,914), de modo que
+   * AMBOS casos reales converjan de forma natural (truncatedByExpansionCap
+   * = false) en vez de cortarse — "primero correcto, luego rápido". No
+   * empeora la latencia de un caso que sí converge (para en la cola antes de
+   * tocar este tope); solo acota un caso genuinamente sin cobertura, que de
+   * todos modos queda gobernado por SEARCH_TIME_BUDGET_MS_LONG_DISTANCE. Ver
+   * sección 12 del handoff para la medición completa y la conclusión
+   * honesta: ni con esta combinación se cumple el presupuesto de p95 < 3s
+   * para esta clase de consulta — se documenta como limitación conocida, no
+   * se oculta ni se fuerza a pasar.
+   */
+  MAX_NODE_EXPANSIONS_LONG_DISTANCE: 22_000,
+  /**
+   * Agregado 2026-08-30. Equivalente de `SEARCH_TIME_BUDGET_MS` para el
+   * tier de distancia larga. Medido contra Postgres real, proceso nuevo por
+   * corrida (mismo método que bench/run-one.ts, handoff sección 12): con
+   * heurística A* + corredor 1.3, casa→ESCOM converge de forma natural (no
+   * truncado) en 15,727 expansiones y el segundo caso largo real en 16,914.
+   * Re-medido limpio 2026-08-30: el tiempo de PARED de casa→ESCOM fue
+   * **21.8s, 21.9s, 22.1s, 24.5s, 24.7s, 24.9s** (6 corridas), y el segundo
+   * caso ~27.2s al converger natural. NOTA: un intento previo (detenido, sin
+   * handoff) había anotado un rango mayor (25.4-42.6s) para el mismo caso;
+   * esa variancia es jitter real de sistema/contención de E/S corriendo
+   * corridas consecutivas contra el mismo Postgres local — no un artefacto
+   * del algoritmo (igual que la sección 6 del handoff ya documentó para el
+   * tier normal, amplificado aquí por ~13x más round-trips). La re-medición
+   * limpia de 2026-08-30 quedó consistentemente en 21.8-27.2s, más baja y
+   * estable que ese rango previo. Se conserva 60,000ms (60s) para dar margen
+   * amplio sobre el peor caso observado incluso bajo alta contención, en vez
+   * de dejar un tope que a veces corta la búsqueda justo antes de converger
+   * — cortarla sería estrictamente peor que no tener tope (tiempo gastado
+   * sin encontrar nada). Esto **incumple explícitamente el
+   * criterio de aceptación p95 < 3s** para esta clase de consulta (viajes
+   * >6km) — es una degradación deliberada y documentada (`PlanConfidence`
+   * gana `"degraded_long_distance"`), no un descuido: el proyecto prioriza
+   * encontrar una ruta real sobre cumplir el presupuesto cuando ambos son
+   * honestamente incompatibles con la arquitectura actual (Dijkstra/A*
+   * por-nodo contra Postgres, sin precómputo de tipo transfer-patterns/hub-
+   * labeling — ver limitación nueva en el handoff). **Nota para
+   * `api-http`/despliegue, no resuelta aquí**: 60s puede exceder el límite
+   * de duración de una función serverless de Vercel según el plan
+   * contratado (10s en el plan gratuito) — este agente no toca
+   * configuración de despliegue, se deja anotado como limitación nueva.
+   */
+  SEARCH_TIME_BUDGET_MS_LONG_DISTANCE: 60_000,
+  /**
+   * Agregado 2026-08-30 (ver docs/handoff/03-algoritmo.md sección 13 —
+   * hallazgo del orquestador: un viaje CORTO ~4.3km en corredor denso, bien
+   * dentro del tier normal, daba `no_coverage` por agotar el tope de nodos).
+   * Tope de nodos del FALLBACK DENSO: el reintento (mismo filtro de corredor
+   * que el tier largo, pero para viajes cortos/medianos que el tier normal no
+   * pudo resolver dentro de su presupuesto). Deliberadamente MUCHO más chico
+   * que `MAX_NODE_EXPANSIONS_LONG_DISTANCE` (22,000): medido contra Postgres
+   * real (sección 13), con el corredor aplicado los casos densos reales
+   * convergen de forma natural en muy pocos nodos — Nápoles/Del Valle→Xoco en
+   * ~1,440, Coyoacán centro→CU en ~538, Nápoles→Viveros en ~1,999. 4,000 da
+   * ~2x de margen sobre el peor observado (1,999) para que converjan natural,
+   * y acota el costo de un no_coverage genuino (que agota este tope sin
+   * encontrar nada) a una fracción del tier largo. Ver también
+   * `SEARCH_TIME_BUDGET_MS_DENSE_FALLBACK`.
+   */
+  MAX_NODE_EXPANSIONS_DENSE_FALLBACK: 4_000,
+  /**
+   * Agregado 2026-08-30. Presupuesto de tiempo de PARED TOTAL (desde el
+   * inicio de la invocación, incluye los ~2.2s que ya gastó el tier normal
+   * antes de caer al fallback) para el fallback denso. Medido (sección 13):
+   * los casos densos reales convergen en ~4-8s de reloj de pared una vez
+   * aplicado el corredor; 12s da margen para converger incluso con jitter de
+   * E/S local, y acota el peor caso (no_coverage genuino) a ~12s en vez de
+   * los 60s del tier largo. **Incumple igual el criterio p95 < 3s** para esta
+   * clase de consulta (viaje corto en corredor denso) — degradación
+   * deliberada y documentada (`plan_confidence: "degraded_dense"`), mismo
+   * principio que el tier largo (sección 12): se prefiere devolver una ruta
+   * real correcta a devolver `no_coverage` dentro del presupuesto. La causa
+   * raíz (A*-por-nodo contra Postgres sin precómputo) y su solución real
+   * (arquitectura tipo transfer-patterns/hub-labeling) es la misma que ya
+   * documentó la sección 12.6 — no se resuelve en esta pasada.
+   */
+  SEARCH_TIME_BUDGET_MS_DENSE_FALLBACK: 12_000,
 } as const;
 
 /**
