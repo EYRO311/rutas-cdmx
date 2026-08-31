@@ -729,3 +729,144 @@ cabecera para reflejar el nuevo estado de verificación.
 - No se verificó el comportamiento del feed fuera de horario de operación de
   Metrobús (la advertencia explícita del manual, sección 8.1) — las pruebas
   de esta sección se corrieron dentro de horario de servicio.
+
+## 9. Vigencia del `calendar` GTFS estático — investigación de una versión más
+   reciente (2026-08-31), conclusión: no existe, no se hizo ningún cambio
+
+El orquestador señaló (correctamente) que el motor de ruteo hoy, con
+`now()` real (2026-08-31 o cualquier fecha de 2026), **no tiene ningún
+servicio programado real que rutear**: las 12 filas `B_*` de `calendar`
+(las 10 agencias reales) vencen el 2025-12-31; la única fila vigente en
+2026 (`TR13_SERVICE`) no tiene `stop_times` y ya está documentada como
+inalcanzable (sección 5, punto 1). Se me pidió confirmar si
+`datos.cdmx.gob.mx` publicó una versión más nueva del feed. Todo lo de esta
+sección se verificó de verdad el 2026-08-31, no se asumió nada.
+
+### 9.1 Resultado: el feed público sigue siendo el mismo archivo, byte por byte
+
+El portal CKAN de `datos.cdmx.gob.mx` sí muestra actividad reciente en el
+dataset: `metadata_created = 2026-08-27T21:05:16 UTC`,
+`metadata_modified = 2026-08-28T05:26:02 UTC` (consultado vía
+`GET /api/3/action/package_show?id=75538d96-3ade-4bc5-ae7d-d85595e4522d`),
+es decir, **el dataset como entrada del portal es más nuevo que nuestra
+descarga original del 2026-08-16** — a primera vista, evidencia de que
+podría haber contenido nuevo.
+
+Se descargó el recurso real (`GTFSZIP`, único recurso del dataset) el
+2026-08-31 y se comparó contra `data/raw/cdmx-gtfs.zip` (el archivo ya
+ingerido en la sección 1.1, descargado 2026-08-16):
+
+| | Archivo ya ingerido (2026-08-16) | Descarga fresca (2026-08-31) |
+|---|---|---|
+| Tamaño | 2,397,374 bytes | 2,397,374 bytes |
+| SHA-256 | `a2ecd0fb...25384` | `a2ecd0fb...25384` (idéntico) |
+| `Last-Modified` (HTTP) | — | `Fri, 28 Aug 2026 05:26:02 GMT` |
+
+**Son el mismo archivo, byte por byte.** Se extrajo `calendar.txt` de la
+descarga fresca como confirmación adicional (no solo confiar en el hash):
+las 13 filas son idénticas a las ya cargadas — los 12 servicios `B_*`
+siguen venciendo `2025-12-31`, `TR13_SERVICE` sigue siendo el único con
+`end_date=2026-12-31`.
+
+**Conclusión: lo que el portal "actualizó" el 27-28 de agosto fue el
+registro del dataset (metadata del CKAN), no el contenido del ZIP.** Es
+plausible que sea una migración/reorganización del portal (el dataset
+tiene un `metadata_created` nuevo, como si se hubiera vuelto a dar de alta
+la misma entrada) — no hay forma de confirmar la causa exacta desde
+afuera, pero el efecto es verificable y concreto: **no hay una versión más
+nueva del `calendar.txt` disponible públicamente hoy**.
+
+Nota aparte, no relacionada con la vigencia pero relevante para quien
+vuelva a tocar la descarga: la respuesta de `package_show` trae la URL del
+recurso apuntando a una IP interna (`http://10.80.148.134/dataset/.../download/...zip`),
+no al dominio público — es una fuga de configuración del reverse proxy del
+portal, no un endpoint utilizable desde fuera de su red. La descarga real
+se hizo sustituyendo esa IP por el dominio público
+(`https://datos.cdmx.gob.mx/dataset/.../download/...zip`), que sí responde
+`200 OK`.
+
+**No se intentó** cruzar contra `datos.gob.mx` (portal federal) como
+segunda fuente — igual que la nota ya existente en la sección 7.5 sobre
+Ecobici, se prioriza el hash idéntico contra la fuente primaria (la misma
+ya usada y documentada en la sección 1.1) sobre abrir una fuente nueva sin
+evidencia de que traiga algo distinto; además `datos.gob.mx` respondió
+`403 Forbidden` a `WebFetch` (bloqueo de bot) en el intento que sí se hizo.
+
+### 9.2 Qué NO se hizo (y por qué)
+
+No se re-ingirió el feed (sería descargar y procesar un archivo idéntico
+al que ya está en `data/raw/cdmx-gtfs.zip` — no hay ninguna diferencia de
+esquema de IDs que reconciliar porque no hay ninguna diferencia de
+contenido, punto). No se corrió ninguna migración nueva con
+`scripts/migrate.ts` ni se tocó Postgres — no había nada que migrar o
+recargar. `npm run etl` no se volvió a correr en este ejercicio porque no
+cambia el resultado ya documentado en la sección 3 (mismo ZIP, mismo hash
+⇒ mismos conteos). Se corrió `npx vitest run` una vez para confirmar que
+nada se rompió: **24 archivos, 174 pruebas pasan, 4 skipped, 0 fallos** —
+esperable, porque no se tocó ni código ni datos.
+
+### 9.3 Alternativas reales para que el orquestador decida (no es mi decisión)
+
+La fuente pública sigue vencida. Estas son las opciones que existen hoy,
+con evidencia a favor y en contra de cada una — ninguna es "la correcta"
+obvia, y ninguna es gratis:
+
+**Opción A — Extender manualmente `calendar.end_date` de los 12 servicios
+`B_*`** (ej. de `2025-12-31` a una fecha futura razonable), vía un
+mecanismo de override explícito (mismo patrón que `route_overrides`/
+`stop_overrides` — **nunca** un `UPDATE` directo sobre las filas crudas de
+`calendar`, para no perder el rastro de qué es dato real de la fuente y
+qué es una corrección asumida).
+
+- *A favor, con evidencia real:* la fuente **no trae `calendar_dates.txt`**
+  (ya documentado en la sección 5, punto 3) y las 13 filas de `calendar`
+  son, en los hechos, **12 combinaciones fijas de día-de-semana** (`B_0`
+  = los 7 días, `B_1` = L-V, `B_2` = solo sábado, `B_3` = solo domingo,
+  `B_4` = L-S, etc., verificado extrayendo `calendar.txt` de nuevo en esta
+  sesión) — no hay una sola excepción de fecha (feriados, paros, cambios
+  de temporada) en ningún lado del feed. Eso es evidencia real (no una
+  suposición) de que el `calendar` de esta fuente modela **patrones
+  semanales genéricos**, no un calendario ligado a eventos de un año
+  calendario específico — extender la fecha de corte asumiendo que el
+  patrón semanal se mantiene es una hipótesis con más respaldo que "sin
+  evidencia", aunque sigue siendo una hipótesis, no un hecho confirmado
+  por la fuente.
+- *En contra:* sigue siendo **inventar vigencia que la fuente no otorga**.
+  Cualquier cambio real de rutas/horarios/frecuencias entre 2025-12-31 y
+  la fecha extendida (rutas nuevas, rutas dadas de baja, cambios de
+  headway) no se reflejaría — el override extiende la fecha, no el
+  contenido. Y no resuelve nada para `TR13`, que ya está vencido por otra
+  razón (sin `stop_times`, sección 5 punto 1) independiente de esto.
+- *Costo:* bajo — una migración chica (`calendar_overrides` o extender el
+  patrón de `route_overrides` a fechas) y una consulta que la respete en
+  el motor de ruteo. Pero **cambia código de `modelo-grafo`/
+  `algoritmo-ruteo`, fuera de mi alcance en esta tarea** — yo solo dejo la
+  evidencia, no lo implemento.
+
+**Opción B — No hacer nada, seguir probando con fecha fija dentro de la
+vigencia real** (`2025-06-16` u otra fecha dentro de 2024-12-01 a
+2025-12-31). Es lo que ya hacen `src/mcp/tools/calcular-ruta.ts` (mensaje
+explícito al usuario cuando pide "ahora" fuera de vigencia) y
+`scripts/field-test/email-worker.ts` (comentario explícito sobre el
+vencimiento). Cero riesgo de inventar datos, pero **no cumple el objetivo
+de negocio declarado** (correo → ruta para *ahora mismo*) mientras la
+fuente siga vencida.
+
+**Opción C — Monitoreo pasivo**: agregar una revisión periódica (ej. un
+paso de cron, no necesariamente diario) que compare el hash del ZIP contra
+`data/raw/cdmx-gtfs.zip` y avise cuando cambie de verdad, en vez de asumir
+que "está vencido para siempre". Barato, no resuelve el problema hoy, pero
+evita que el hueco se vuelva a descubrir a mano la próxima vez. Se puede
+combinar con cualquiera de las otras dos opciones.
+
+**Recomendación de este agente, sin implementarla:** ninguna opción borra
+el hueco real (la fuente pública sigue vencida y no hay indicio de que
+vaya a actualizarse pronto — el portal tocó metadata, no contenido, en la
+única señal de actividad reciente que existe). Si el objetivo de negocio
+de ruteo "en vivo" es firme, la Opción A es la única que lo desbloquea,
+pero debe quedar rotulada sin ambigüedad como una vigencia **asumida, no
+verificada por la fuente** — igual que cualquier otro override de este
+proyecto — y no debería aplicarse a `TR13` (ya vencido por un problema
+distinto y más profundo). La decisión final, y quién la implementa
+(`modelo-grafo` o `algoritmo-ruteo`, según dónde viva la lógica de
+vigencia), le toca al orquestador.
