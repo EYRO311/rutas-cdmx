@@ -5,14 +5,17 @@
  * bajado tal cual de https://github.com/google/transit — no reescrito a mano,
  * para no introducir errores de esquema) cargado dinámicamente con protobufjs.
  *
- * IMPORTANTE — estado de verificación: este parser se probó con un
+ * IMPORTANTE — estado de verificación: este parser se probó primero con un
  * FeedMessage sintético (ver tests/gtfs-rt-parse.test.ts), codificado y
- * decodificado con el mismo esquema, y el roundtrip es correcto. NO se
- * probó contra el feed real de metrobus-gtfs.sinopticoplus.com porque el
- * registro para obtener METROBUS_GTFS_TOKEN sigue pendiente (bloqueo
- * conocido, ver docs/handoff/01-datos.md y PLAN.md). Es posible que el feed
- * real de Metrobús use una variante del esquema (extensiones, campos no
- * poblados) que este código no haya ejercitado todavía.
+ * decodificado con el mismo esquema (roundtrip correcto), y DESDE 2026-08-31
+ * también contra el feed real de Metrobús (vía `auth.ts` + `fetch-and-store.ts`,
+ * ver docs/handoff/01-datos.md sección 8): decodifica sin errores un feed real
+ * de 845 `VehiclePosition` y 0 `TripUpdate`. El feed real solo ejercita el
+ * bloque `vehicle` de la spec -- el bloque `tripUpdate`/`stopTimeUpdate` sigue
+ * sin verificarse contra datos reales porque el feed de Metrobús no trae
+ * ninguna entidad de ese tipo en las corridas de prueba hechas hasta ahora
+ * (puede que Metrobús simplemente no publique trip updates, no es un bug de
+ * este parser -- ver hallazgo en el handoff).
  */
 import protobuf from "protobufjs";
 import { fileURLToPath } from "node:url";

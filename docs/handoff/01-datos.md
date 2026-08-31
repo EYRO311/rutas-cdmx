@@ -526,3 +526,206 @@ sin relevancia).
   exactamente con el formato descrito en el brief de este entregable
   (estación origen/destino + hora inicio/fin) y respondió con datos reales
   verificables.
+
+## 8. GTFS-RT de Metrobús desbloqueado (2026-08-31) — feed real verificado por primera vez
+
+Extiende la sección 1.3 y el punto 10 de la sección 5 (ambas ya cerradas, no
+reescritas). El 2026-08-31 llegó un correo nuevo de sinopticoplus.com con
+credenciales de acceso a la API real (no el formulario de registro de datos
+abiertos de la sección 1.3 — es otra cosa, operada por **Sonda S.A.**, la
+empresa detrás de `metrobus-gtfs.sinopticoplus.com`). Todo lo de esta
+sección se corrió de verdad contra Postgres local (puerto 5433, `rutas_cdmx`)
+el 2026-08-31, verificado con `SELECT` directo.
+
+### 8.1 Qué documenta el manual (`manual_integracion_gtfs.pdf`, Sonda S.A., v1.0, 2023-03-01)
+
+Flujo de 1 solo paso, sin token Bearer reutilizable:
+
+```
+POST https://metrobus-gtfs.sinopticoplus.com/gtfs-api/partnerValidation
+Body (JSON): { "usuario": "...", "senha": "..." }
+
+Respuesta (JSON):
+{
+  "expirationDateTime": "...",
+  "generationDateTime": "...",
+  "urlRealTime": "<URL S3 presignada al .proto binario del feed GTFS-RT>",
+  "urlStatic":   "<URL S3 presignada al .zip del GTFS estático>"
+}
+```
+
+El manual describe `urlRealTime` como "un fichero .proto que contiene la
+agrupación de todas las transmisiones de los vehículos durante los últimos
+30 segundos" — pese a la extensión `.proto` (que normalmente indica un
+archivo de definición de esquema), el contenido real es binario
+Protocol Buffers de un `FeedMessage` de GTFS-Realtime, no un esquema. El
+manual también advierte: "esta información solo estará disponible cuando el
+cliente esté en funcionamiento" — es decir, fuera del horario de operación
+de Metrobús el feed puede venir vacío o no generarse; la prueba de esta
+sección se corrió a las 12:14-12:16 hora CDMX (dentro de horario de
+operación), así que esa condición no se pudo verificar directamente.
+
+### 8.2 Cómo se obtiene y usa la URL — decisión de refresco, con evidencia
+
+**No existe un `METROBUS_GTFS_TOKEN` en el sentido de un Bearer de larga
+duración.** La respuesta del login ES la URL del feed (presignada por AWS
+S3, con firma `AWS4-HMAC-SHA256` en el query string). Implementado en
+`scripts/gtfs-rt/auth.ts` (`getMetrobusFeedUrls()`), consumido por
+`scripts/gtfs-rt/fetch-and-store.ts`.
+
+**Discrepancia real encontrada entre el PDF y el comportamiento observado,
+documentada, no ignorada:** el manual dice (sección 2.2) que "las URL siempre
+caducan después de 10 minutos de su generación". La respuesta real medida en
+2 corridas distintas trae `X-Amz-Expires=10799` segundos en el query string
+de la URL (≈ 3 horas) y el propio JSON de respuesta confirma lo mismo:
+
+| Corrida | `generationDateTime` | `expirationDateTime` | Diferencia |
+|---|---|---|---|
+| 1 | 2026-08-31 12:06:37 | 2026-08-31 15:06:37 | 3h |
+| 2 | 2026-08-31 12:14:03 | 2026-08-31 15:14:03 | 3h |
+| 3 | 2026-08-31 12:16:25 | 2026-08-31 15:16:25 | 3h |
+
+**Decisión de refresco (no se asume ni el valor del PDF ni el observado como
+garantía contractual):** `fetch-and-store.ts` llama a `partnerValidation` en
+**cada corrida**, nunca cachea ni reutiliza una URL entre corridas. El costo
+extra es una sola llamada HTTP barata por ejecución del cron; a cambio, el
+script nunca depende de adivinar cuál de los dos valores de expiración (10
+min documentados vs. ~3h observadas) es el real. Si en el futuro el cron de
+GTFS-RT corre con una frecuencia menor a 10 minutos, este diseño sigue
+funcionando sin cambios.
+
+### 8.3 Resultado real contra el feed en vivo
+
+`npm run gtfs-rt:metrobus` corrido 2 veces seguidas (12:14 y 12:16 hora
+CDMX), ambas exitosas, sin caché entre corridas:
+
+```
+[gtfs-rt:metrobus] llamando a partnerValidation ...
+[gtfs-rt:metrobus] URLs obtenidas. generationDateTime=... expirationDateTime=...
+[gtfs-rt:metrobus] descargando feed GTFS-RT (urlRealTime) ...
+[gtfs-rt:metrobus] guardado: 845 posiciones, 0 trip updates.
+```
+
+Confirmado con `SELECT count(*)` directo tras ambas corridas (esta tabla es
+serie de tiempo tipo `ecobici_snapshots` — se espera que crezca en cada
+corrida, no upsert):
+
+| Tabla | Filas tras 2 corridas |
+|---|---|
+| `metrobus_vehicle_positions` | 1,690 (845 × 2) |
+| `metrobus_trip_updates` | 0 |
+| `_raw` (source=`metrobus-gtfs-rt`) | 2 |
+
+`headerTimestamp` del feed (`2026-08-31T18:14:02.000Z` UTC = 12:14:02 hora
+CDMX) coincide, con 2 segundos de margen, con el momento real en que se
+generó la URL — confirma que el feed es tráfico en vivo, no datos de prueba
+ni un fixture estático.
+
+`tests/gtfs-rt-parse.test.ts` (2 pruebas, roundtrip sintético) sigue pasando
+sin cambios — no se tocó la lógica de `parse.ts`, solo su comentario de
+cabecera para reflejar el nuevo estado de verificación.
+
+### 8.4 Datos sucios y huecos encontrados en el feed real (mismo rigor que la sección 5)
+
+1. **`trip_id` es `NULL` en el 100% de las 845 posiciones de vehículo.** El
+   feed real nunca popula `TripDescriptor.trip_id` dentro de `VehiclePosition`
+   — no es un bug del parser (el campo se lee igual que en el test sintético),
+   es que la fuente no lo manda. Sin `trip_id` no se puede vincular una
+   posición de vehículo a un viaje programado específico del GTFS estático ya
+   cargado.
+2. **`route_id` es `NULL` en 286 de 845 posiciones (33.8%).** El resto (559)
+   sí trae un `route_id`, pero:
+3. **Namespace de `route_id` del feed RT NO coincide con `routes.route_id`
+   ya cargado en Postgres.** El feed real trae IDs numéricos (`"19429"`,
+   `"19470"`, `"19563"`, etc. — 66 valores distintos observados), mientras
+   que las rutas de Metrobús ya normalizadas en la Fase 1 usan el esquema
+   `B_CMX0300L1`...`B_CMX0300L7`, `B_CMX03SL01` (agency `MB`, 8 rutas). Es el
+   mismo problema de esquema de IDs ya documentado para el GTFS estático
+   archivado en la sección 1.3 (agency numérica `1339` vs. `'MB'`) — de hecho
+   el path de la URL real confirma que es la misma fuente/proveedor
+   (`/1339/Metrobus_GTFS_RT.proto`, mismo prefijo `1339` que
+   `Metrobus_GTFS_ESTATICO.zip`). **Consecuencia real: hoy no se puede unir
+   una posición de vehículo en tiempo real a una ruta del grafo ya cargado
+   sin una tabla de reconciliación `route_id` (numérico Sonda) ↔
+   `route_id`/`route_short_name` (`MB`, esquema ya cargado)** — no existe
+   todavía, no es trabajo de este agente inventarla sin evidencia de la
+   correspondencia real (los números no tienen una relación obvia con
+   `route_short_name` observable a simple vista).
+4. **`current_stop_sequence` es `NULL` en el 100% de las 845 posiciones.**
+   El feed no lo popula. Sin esto (y sin `trip_id`) no hay forma de saber en
+   qué punto de su ruta va un vehículo específico, solo su posición
+   geográfica cruda.
+5. **1 de 845 vehículos (`vehicle_id=69624`, 0.12%) trae un `vehicle_timestamp`
+   claramente inválido: `2000-01-01 06:00:00 UTC`**, muy anterior al resto
+   (que cae correctamente entre 18:13:50 y 18:15:29 UTC del 2026-08-31). Ese
+   mismo vehículo también trae `route_id`/`trip_id` `NULL` — parece un
+   vehículo con GPS/reloj sin sincronizar o fuera de servicio que igual
+   transmite un heartbeat vacío. Se guardó tal cual (no se descartó ni se
+   corrigió el valor) porque la regla dura del proyecto es no inventar ni
+   limpiar datos de la fuente en el ETL — si hace falta filtrarlo para
+   consumo real (p.ej. "vehículos activos ahora"), es una decisión de
+   `modelo-grafo`/`api-http`, con un `WHERE vehicle_timestamp > now() -
+   interval '5 minutes'` o similar, no algo que este agente deba resolver
+   silenciosamente.
+6. **`metrobus_trip_updates` sigue en 0 filas, pero ahora por una razón
+   distinta a la original.** Antes era "nunca se pudo probar contra el feed
+   real". Ahora que sí se probó: el feed real de Metrobús, al menos en las 2
+   corridas hechas, **no incluye ninguna entidad `TripUpdate`**, solo
+   `VehiclePosition` — consistente con la propia descripción del manual
+   (sección 2.2), que solo menciona "visibilidad a la posición actual de los
+   vehículos", nunca predicciones de llegada/salida. No se puede afirmar con
+   2 corridas que el feed *nunca* trae `TripUpdate` (podría variar según
+   hora/operación), pero por ahora la tabla se queda vacía por ausencia real
+   de datos en la fuente, no por un bug de parseo o de conexión — el bloque
+   `tripUpdate`/`stopTimeUpdate` del parser sigue sin ejercitarse contra
+   datos reales (ver comentario actualizado en `parse.ts`).
+7. **`bearing` y `speed` sí vienen poblados en el 100% de las filas** — dato
+   bueno, sin hueco.
+
+### 8.5 Qué cambió en el código y qué no
+
+- **Nuevo:** `scripts/gtfs-rt/auth.ts` (`getMetrobusFeedUrls()`) — hace el
+  login `partnerValidation` con `process.env`, nunca credenciales
+  hardcodeadas.
+- **Modificado:** `scripts/gtfs-rt/fetch-and-store.ts` — ya no busca
+  `METROBUS_GTFS_TOKEN`/`METROBUS_GTFS_RT_URL` ni manda `Authorization:
+  Bearer`; llama a `auth.ts` en cada corrida y descarga `urlRealTime`
+  directo (URL S3 presignada, sin headers de auth adicionales).
+- **Modificado:** comentario de cabecera de `scripts/gtfs-rt/parse.ts` —
+  refleja que ya se verificó contra el feed real (solo el bloque `vehicle`;
+  `tripUpdate` sigue sin datos reales que lo ejerciten). La lógica de
+  parseo NO cambió.
+- **`.env`:** se eliminaron `METROBUS_GTFS_TOKEN`/`METROBUS_GTFS_RT_URL`
+  (nunca tuvieron un valor real y el flujo confirmado no los necesita); se
+  mantienen `METROBUS_GTFS_PARTNER_VALIDATION_URL`,
+  `METROBUS_GTFS_API_USER`, `METROBUS_GTFS_API_PASSWORD` — son las
+  variables reales que necesita producción. Nunca se imprimió el valor de
+  usuario/contraseña en ningún log ni en este handoff.
+- **No se tocó** `src/routing/`, `src/api/`, `src/mcp/`, ni ninguna
+  migración — el esquema de `metrobus_vehicle_positions`/
+  `metrobus_trip_updates` (migración `0006`) ya soportaba estos datos sin
+  cambios.
+
+### 8.6 Lo que sigue pendiente (no es trabajo de este agente resolverlo aquí)
+
+- Construir la tabla de reconciliación `route_id` (Sonda, numérico) ↔
+  `route_id`/`route_short_name` (`MB`, ya cargado) — sin ella, un vehículo en
+  tiempo real no se puede vincular a una ruta del grafo. Ninguna
+  correspondencia obvia se encontró a simple vista entre los 66 IDs
+  numéricos observados y las 8 rutas `MB` ya cargadas.
+- Decidir si vale la pena reemplazar/reconciliar el GTFS estático completo
+  de Metrobús (archivado en `data/raw/metrobus-gtfs-estatico/`, sección 1.3)
+  ahora que se confirma que **es el mismo proveedor y el mismo prefijo
+  `1339`/agencia** que el feed RT — resolver esto de una vez arreglaría el
+  problema de namespace de las dos fuentes a la vez, en vez de dos parches
+  separados. Sigue siendo una decisión de alcance mayor (Fase 2/3), no de
+  este agente.
+- Confirmar cuántas veces por hora conviene correr el cron de este script
+  (el feed dice cubrir "los últimos 30 segundos" de transmisiones) — no se
+  decidió ni se creó un workflow de GitHub Actions para esto en esta sesión,
+  solo se verificó que el script funciona de punta a punta contra datos
+  reales. Mismo bloqueo que Ecobici en producción: hace falta el secret
+  `DATABASE_URL` de Supabase en GitHub Actions, que todavía no existe.
+- No se verificó el comportamiento del feed fuera de horario de operación de
+  Metrobús (la advertencia explícita del manual, sección 8.1) — las pruebas
+  de esta sección se corrieron dentro de horario de servicio.

@@ -3,43 +3,34 @@
  * el resultado en metrobus_vehicle_positions / metrobus_trip_updates
  * (además del payload crudo en _raw).
  *
- * BLOQUEADO: requiere METROBUS_GTFS_TOKEN, que sale de registrarse en
- * https://metrobus-gtfs.sinopticoplus.com (registro manual, no se puede
- * automatizar desde este agente). .env tiene la variable declarada pero
- * vacía. Mientras no haya token, este script se detiene con exit code 1 y
- * un mensaje explícito en vez de fallar con un error de red críptico o
- * simular una respuesta.
+ * DESBLOQUEADO 2026-08-31 (ver docs/handoff/01-datos.md sección 8): el correo
+ * de sinopticoplus.com trajo credenciales para el login `partnerValidation`
+ * de la API real (proveedor: Sonda S.A.), documentado en
+ * `manual_integracion_gtfs.pdf`. Ese login (implementado en `auth.ts`)
+ * regresa una URL S3 presignada para el feed GTFS-RT (`.proto`, en realidad
+ * un `FeedMessage` protobuf binario pese a la extensión) -- NO un Bearer
+ * token reutilizable. Se pide una URL fresca en cada corrida (ver el
+ * comentario de diseño en `auth.ts`).
  *
- * La URL exacta del endpoint del feed (vehicle positions / trip updates)
- * tampoco está confirmada todavía — solo se conoce el dominio de registro.
- * Hay que confirmarla al completar el registro y ajustar METROBUS_RT_URL
- * abajo.
+ * `METROBUS_GTFS_TOKEN` y `METROBUS_GTFS_RT_URL` (variables del bloqueo
+ * anterior, cuando se pensaba que el registro manual del portal iba a dar un
+ * Bearer token de larga duración) ya NO se usan -- quedan documentadas aquí
+ * solo por si alguien las busca en el historial de git.
  */
 import "dotenv/config";
 import { getPool, closePool } from "../db.ts";
 import { parseGtfsRtFeed } from "./parse.ts";
-
-const METROBUS_RT_URL =
-  process.env["METROBUS_GTFS_RT_URL"] ??
-  "https://metrobus-gtfs.sinopticoplus.com/gtfs-rt/VehiclePositions.pb";
+import { getMetrobusFeedUrls } from "./auth.ts";
 
 async function main(): Promise<void> {
-  const token = process.env["METROBUS_GTFS_TOKEN"];
-  if (!token) {
-    console.error(
-      "[gtfs-rt:metrobus] BLOQUEADO: METROBUS_GTFS_TOKEN no está definido en .env. " +
-        "Falta completar el registro en metrobus-gtfs.sinopticoplus.com (bloqueo conocido, ver PLAN.md). " +
-        "El parser (scripts/gtfs-rt/parse.ts) está escrito y probado con datos sintéticos " +
-        "(tests/gtfs-rt-parse.test.ts) pero nunca se corrió contra el feed real."
-    );
-    process.exitCode = 1;
-    return;
-  }
+  console.log("[gtfs-rt:metrobus] llamando a partnerValidation ...");
+  const feedUrls = await getMetrobusFeedUrls();
+  console.log(
+    `[gtfs-rt:metrobus] URLs obtenidas. generationDateTime=${feedUrls.generationDateTime} expirationDateTime=${feedUrls.expirationDateTime}`
+  );
 
-  console.log(`[gtfs-rt:metrobus] descargando ${METROBUS_RT_URL} ...`);
-  const res = await fetch(METROBUS_RT_URL, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  console.log("[gtfs-rt:metrobus] descargando feed GTFS-RT (urlRealTime) ...");
+  const res = await fetch(feedUrls.urlRealTime);
   if (!res.ok) {
     throw new Error(
       `Feed de Metrobús respondió ${res.status} ${res.statusText}`
@@ -61,6 +52,8 @@ async function main(): Promise<void> {
           headerTimestamp: parsed.headerTimestamp,
           vehicleCount: parsed.vehiclePositions.length,
           tripUpdateCount: parsed.tripUpdates.length,
+          generationDateTime: feedUrls.generationDateTime,
+          expirationDateTime: feedUrls.expirationDateTime,
         }),
       ]
     );

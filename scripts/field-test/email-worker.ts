@@ -104,33 +104,42 @@ async function geocode(query: string): Promise<GeocodedPoint> {
 interface ParsedRequest {
   origenTexto: string;
   destinoTexto: string;
-  hora: string | null; // "HH:MM" o null (== "ahora")
+  hora: string | null; // "HH:MM" o null (== "ahora", o mediodía si hay "fecha" sin "hora")
+  fecha: string | null; // "YYYY-MM-DD" o null (== hoy)
 }
 
 function parseBody(text: string): ParsedRequest {
   const origen = text.match(/^\s*origen\s*:\s*(.+)$/im);
   const destino = text.match(/^\s*destino\s*:\s*(.+)$/im);
   const hora = text.match(/^\s*hora\s*:\s*(\d{1,2}:\d{2})\s*$/im);
+  const fecha = text.match(/^\s*fecha\s*:\s*(\d{4}-\d{2}-\d{2})\s*$/im);
 
   if (!origen || !destino) {
     throw new Error(
       'Formato no reconocido. Manda un correo con líneas "origen: ..." y ' +
-        '"destino: ..." (y opcionalmente "hora: HH:MM", 24h, hora CDMX).',
+        '"destino: ..." (y opcionalmente "hora: HH:MM" y "fecha: YYYY-MM-DD", hora CDMX).',
     );
   }
   return {
     origenTexto: origen[1]!.trim(),
     destinoTexto: destino[1]!.trim(),
     hora: hora ? hora[1]!.trim() : null,
+    fecha: fecha ? fecha[1]!.trim() : null,
   };
 }
 
-function buildDepartureAt(hora: string | null): string | undefined {
-  if (!hora) return undefined;
-  const today = new Date().toLocaleDateString("en-CA", {
-    timeZone: "America/Mexico_City",
-  }); // YYYY-MM-DD
-  return `${today}T${hora}:00${CDMX_UTC_OFFSET}`;
+// El GTFS cargado hoy vence casi por completo el 2025-12-31 (ver PLAN.md,
+// deuda de Fase 2) -- pedir "ahora" (fecha real de hoy) da no_coverage por
+// falta de servicio programado, no por un error del motor. Mientras no haya
+// un feed 2026 vigente, "fecha:" deja fijar una fecha real dentro de la
+// vigencia para poder seguir probando.
+function buildDepartureAt(hora: string | null, fecha: string | null): string | undefined {
+  if (!hora && !fecha) return undefined;
+  const fechaEfectiva =
+    fecha ??
+    new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" }); // YYYY-MM-DD
+  const horaEfectiva = hora ?? "12:00"; // fecha sin hora -> mediodía, no "ahora" (no tendría sentido mezclar fecha fija con hora real del reloj)
+  return `${fechaEfectiva}T${horaEfectiva}:00${CDMX_UTC_OFFSET}`;
 }
 
 interface RouteApiResponse {
@@ -269,7 +278,7 @@ async function handleMessage(
   let replyBody: string;
   try {
     const request = parseBody(bodyText);
-    const departureAt = buildDepartureAt(request.hora);
+    const departureAt = buildDepartureAt(request.hora, request.fecha);
 
     const [origin, destination] = await Promise.all([
       geocode(request.origenTexto),

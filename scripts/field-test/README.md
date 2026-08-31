@@ -54,9 +54,18 @@ seguridad), con:
 origen: Río Becerra 129, Col. 8 de Agosto, CDMX
 destino: ESCOM, Zacatenco, CDMX
 hora: 15:00
+fecha: 2025-06-16
 ```
 
-- `hora` es opcional (24h, hora CDMX) — si la omites, calcula "ahora mismo".
+- `hora` es opcional (24h, hora CDMX) — si la omites, calcula "ahora mismo"
+  (o mediodía, si sí pusiste `fecha`).
+- `fecha` es opcional (`YYYY-MM-DD`) — si la omites, usa hoy.
+  **Necesaria por ahora**: el GTFS cargado vence casi por completo el
+  2025-12-31 (deuda conocida, ver `PLAN.md`), así que pedir "hoy" da
+  `no_coverage` por falta de servicio programado, no porque el motor esté
+  fallando. Mientras no haya un feed 2026 vigente, usa una fecha real
+  dentro de 2024-12-01 a 2025-12-31 (ej. `2025-06-16`, ya usado en las
+  pruebas del motor).
 - También puedes poner coordenadas directas en vez de texto, si ya
   tienes el pin de Google Maps: `origen: 19.3910,-99.1845`.
 
