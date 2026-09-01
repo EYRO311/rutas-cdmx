@@ -456,6 +456,20 @@ async function main(): Promise<void> {
   }
 }
 
+// Red flaky de verdad (pasó hoy): un ECONNRESET durante el handshake TLS de
+// `client.connect()`, antes de que ImapFlow termine de conectar su propio
+// listener de 'error', llega como excepción no capturada a nivel de proceso
+// -- el `client.on("error", ...)` de runSession() no la ve, y sin este
+// manejador tumba TODO el worker (main() nunca llega a reintentar). Con
+// esto, ese tipo de error solo se registra; el loop de reintentos de main()
+// sigue siendo el único que decide reconectar.
+process.on("uncaughtException", (err) => {
+  console.error("[email-worker] Excepción no capturada (probablemente un socket viejo cayéndose tarde) -- se ignora, main() sigue reintentando:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[email-worker] Promesa rechazada sin capturar -- se ignora:", err);
+});
+
 main().catch((err) => {
   console.error("[email-worker] Error fatal:", err);
   process.exit(1);
