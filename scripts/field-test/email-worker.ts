@@ -16,6 +16,15 @@ const API_KEY = requireEnv("API_KEY");
 const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:3000";
 const SUBJECT_TAG = process.env.FIELD_TEST_SUBJECT_TAG ?? "RUTA";
 
+// Header propio para marcar las respuestas del worker. Sin esto hay un loop
+// real: el uso previsto es mandar el correo A LA MISMA cuenta que vigila el
+// worker (ver README), así que la respuesta ("Re: RUTA", from=EMAIL_USER)
+// cae en la MISMA bandeja, viene de un remitente de confianza (EMAIL_USER
+// está en ALLOWED_SENDERS) y sigue trayendo "RUTA" en el asunto -- sin este
+// header el worker se contesta a sí mismo indefinidamente (pasó de verdad:
+// decenas de respuestas antes de detectarlo).
+const WORKER_REPLY_HEADER = "x-rutas-cdmx-field-test-reply";
+
 // Remitentes de confianza que pueden disparar un cómputo + respuesta.
 // Por default solo la propia cuenta monitoreada, pero en la práctica el
 // celular puede mandar desde OTRA cuenta de Gmail hacia esta bandeja (ej.
@@ -261,6 +270,7 @@ async function handleMessage(
 
   const isTrustedSender = ALLOWED_SENDERS.includes(fromAddress);
   const hasTag = subject.toUpperCase().includes(SUBJECT_TAG.toUpperCase());
+  const isOwnReply = parsed.headers.has(WORKER_REPLY_HEADER);
 
   // Solo procesamos correos de un remitente de confianza con el asunto
   // marcado -- evita que spam o correos ajenos disparen cómputo y
@@ -268,7 +278,9 @@ async function handleMessage(
   // lado del servidor IMAP en processUnseen (from + subject), esto solo
   // cubre falsos positivos de esa búsqueda (ej. coincidencia parcial de
   // subject, o el "from" del SEARCH siendo un substring match de IMAP).
-  if (!isTrustedSender || !hasTag) {
+  // isOwnReply corta el loop real de contestarse a sí mismo -- ver
+  // WORKER_REPLY_HEADER arriba.
+  if (!isTrustedSender || !hasTag || isOwnReply) {
     return;
   }
 
@@ -304,6 +316,7 @@ async function handleMessage(
     inReplyTo: parsed.messageId,
     references: parsed.messageId ? [parsed.messageId] : undefined,
     text: replyBody,
+    headers: { [WORKER_REPLY_HEADER]: "1" },
   });
   console.log("[email-worker] Respuesta enviada.");
 }
